@@ -25,12 +25,12 @@ def gold_run(delta_t, J1_cut, J2_cut, zodi_cut, io_correct, superdark, in_aor):
             '_ia='+str(in_aor)+\
             '/'
 
-    # if not os.path.exists(new_rootdir+run_name):
-    #     os.mkdir(new_rootdir+run_name)
-    #     print('RUN: '+run_name)
-    # else: 
-    #     print('SKIPPING: '+run_name+' (already done)')
-    #     return
+    if not os.path.exists(new_rootdir+run_name):
+        os.mkdir(new_rootdir+run_name)
+        print('RUN: '+run_name)
+    else: 
+        print('SKIPPING: '+run_name+' (already done)')
+        return
 
     simlapath = os.path.dirname(os.path.realpath(__file__))
 
