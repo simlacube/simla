@@ -6,6 +6,7 @@ from simla import tools
 from scipy import interpolate
 import glob
 import os
+simlapath = os.path.dirname(os.path.realpath(__file__))
 
 all_aors = query(bcd.select(bcd.AORKEY))['AORKEY'].to_numpy().tolist()
 unique_aors = list(set(all_aors))
@@ -30,19 +31,19 @@ ll_ramptimes = [6.29, 14.68, 31.46, 121.90]
 superdark_sets = {}
 for i in sl_ramptimes:
     
-    superdark_set_files = sorted(glob.glob('./superdarks/SL*'+str(i)+'*'))
+    superdark_set_files = sorted(glob.glob(simlapath+'/superdarks/SL*'+str(i)+'*'))
     superdark_set = np.asarray([np.load(i) for i in superdark_set_files])
     fiducial_zodis = np.asarray([float(i.split('superdark_')[1].split('-')[0])+5 for i in superdark_set_files])
     superdark_sets['SL_'+str(i)] = {'set': superdark_set, 'fiducial_zodis': fiducial_zodis}
     
 for i in ll_ramptimes:
     
-    superdark_set_files = sorted(glob.glob('./superdarks/LL*'+str(i)+'*'))
+    superdark_set_files = sorted(glob.glob(simlapath+'/superdarks/LL*'+str(i)+'*'))
     superdark_set = np.asarray([np.load(i) for i in superdark_set_files])
     fiducial_zodis = np.asarray([float(i.split('superdark_')[1].split('-')[0])+5 for i in superdark_set_files])
     superdark_sets['LL_'+str(i)] = {'set': superdark_set, 'fiducial_zodis': fiducial_zodis}
     
-    superdark_set_files = sorted(glob.glob('./superdarks/LLa*'+str(i)+'*'))
+    superdark_set_files = sorted(glob.glob(simlapath+'/superdarks/LLa*'+str(i)+'*'))
     superdark_set = np.asarray([np.load(i) for i in superdark_set_files])
     fiducial_zodis = np.asarray([float(i.split('superdark_')[1].split('-')[0])+5 for i in superdark_set_files])
     superdark_sets['LLa_'+str(i)] = {'set': superdark_set, 'fiducial_zodis': fiducial_zodis}
@@ -66,7 +67,7 @@ def interp_superdark(z, superdark_set, fiducial_zodis):
     # out_image = np.where((out_image>-15)&(out_image<15), out_image, 0)
     return out_image
 
-if not os.path.exists('./')
+if not os.path.exists(simlapath+'/')
 
 for rep in tqdm(bcd_reps):
     
@@ -85,4 +86,4 @@ for rep in tqdm(bcd_reps):
     superdark = interp_superdark(zodi_value, superdark_set, fiducial_zodis)
     
     name = str(aorkey)+'_'+ordername
-    np.save('./tailored_superdarks/'+name, superdark)
+    np.save(simlapath+'/tailored_superdarks/'+name, superdark)
