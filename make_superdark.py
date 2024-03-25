@@ -8,6 +8,7 @@ from matplotlib.pyplot import figure
 from simla import tools
 from scipy import interpolate
 import os
+simlapath = os.path.dirname(os.path.realpath(__file__))
 
 # Make the superdarks binned by zodi and ramptime that the tailored superdarks
 # will be interpolated from
@@ -99,7 +100,7 @@ def superdark(darks):
         modname = ['SL', None, 'LL', None][irs_imhead['CHNLNUM']]
         aorkey = irs_imhead['AORKEY']
         
-        zodi_bcd = np.load('./zodi_images/'+\
+        zodi_bcd = np.load(simlapath+'/zodi_images/'+\
                           str(aorkey)+'_'+modname+'.npy')
         
         sub_im = irs_imdat - zodi_bcd
@@ -116,8 +117,8 @@ zodi_cuts = np.hstack((np.arange(0, 60, 10),np.asarray([60])))
 sl_ramptimes = [6.29, 14.68, 241.83, 60.95]
 ll_ramptimes = [6.29, 14.68, 31.46, 121.90]
 
-if not os.path.exists('./superdarks/'):
-    os.mkdir('./superdarks/')
+if not os.path.exists(simlapath+'/superdarks/'):
+    os.mkdir(simlapath+'/superdarks/')
 
 for ramp in sl_ramptimes:
     for i in range(len(zodi_cuts)-1):
@@ -125,7 +126,7 @@ for ramp in sl_ramptimes:
         darks = get_dark_bcds(0, 55000, 0, zodi_cuts[i], zodi_cuts[i+1], ramp)
         if len(darks) > 0:
             darkstack = superdark(darks)
-            np.save('./superdarks/SL_superdark_'+\
+            np.save(simlapath+'/superdarks/SL_superdark_'+\
                     str(zodi_cuts[i])+'-'+str(zodi_cuts[i+1])+'_ramp='+str(ramp)+'_n='+str(len(darks)), darkstack)
         
 for ramp in ll_ramptimes:
@@ -134,11 +135,11 @@ for ramp in ll_ramptimes:
         darks = get_dark_bcds(0, ll_gain_change_mjd, 2, zodi_cuts[i], zodi_cuts[i+1], ramp)
         if len(darks) > 0:
             darkstack = superdark(darks)
-            np.save('./superdarks/LL_superdark_'+\
+            np.save(simlapath+'/superdarks/LL_superdark_'+\
                     str(zodi_cuts[i])+'-'+str(zodi_cuts[i+1])+'_ramp='+str(ramp)+'_n='+str(len(darks)), darkstack)
 
         darks = get_dark_bcds(ll_gain_change_mjd, 55000, 2, zodi_cuts[i], zodi_cuts[i+1], ramp)
         if len(darks) > 0:
             darkstack = superdark(darks)
-            np.save('./superdarks/LLa_superdark_'+\
+            np.save(simlapath+'/superdarks/LLa_superdark_'+\
                     str(zodi_cuts[i])+'-'+str(zodi_cuts[i+1])+'_ramp='+str(ramp)+'_n='+str(len(darks)), darkstack)

@@ -27,16 +27,20 @@ def gold_run(delta_t, J1_cut, J2_cut, zodi_cut, io_correct, superdark, in_aor):
 
     if not os.path.exists(new_rootdir+run_name):
         os.mkdir(new_rootdir+run_name)
-        
-    print('RUN: '+run_name)
+        print('RUN: '+run_name)
+    else: 
+        print('SKIPPING: '+run_name+' (already done)')
+        return
 
-    prognames_map = p = np.genfromtxt('./prognames.txt', dtype=str)
+    simlapath = os.path.dirname(os.path.realpath(__file__))
+
+    prognames_map = p = np.genfromtxt(simlapath+'/prognames.txt', dtype=str)
     prognames = prognames_map.T[0]
     progids = prognames_map.T[1]
 
-    all_aors = np.load('./gold_aors.npy')
+    all_aors = np.load(simlapath+'/gold_aors.npy')
 
-    all_aors = np.unique(all_aors).tolist()[0::2] # Remove [0::2] 
+    all_aors = np.unique(all_aors).tolist() # Remove [0::2] 
     aor_counter = -1
 
     if not os.path.exists(new_rootdir+run_name+'diagnostics'):
@@ -120,8 +124,8 @@ def gold_run(delta_t, J1_cut, J2_cut, zodi_cut, io_correct, superdark, in_aor):
                             sl_info = simlacube(inputs)
                             log.append(str(datetime.datetime.now())+' : '+'successfully made SL cubes in '+str(round(sl_info.cube_time,2))+'s')
 
-                        except: 
-                            log.append(str(datetime.datetime.now())+' : '+'unknown error occured. Moving on')
+                        except Exception as e: 
+                            log.append(str(datetime.datetime.now())+' : '+'ERROR: '+str(e))
                             failed_cubes.append(str(aor)+' SL')
                             pass
 
@@ -131,7 +135,6 @@ def gold_run(delta_t, J1_cut, J2_cut, zodi_cut, io_correct, superdark, in_aor):
                             diag_name = new_rootdir+run_name+'diagnostics/'+o+'_'+str(aor)+'_'+'_deltat='+str(delta_t)+'_J1='+\
                                                     str(J1_cut)+'_J2='+str(J2_cut)+'_zodicut='+str(zodi_cut)+'_SL_diag'
                             sl_info.generate_report(diag_name+'.pdf')
-                            sl_info.generate_ds9_regionfiles()
                             sl_diag_data = {
                             'AORKEY': aor,
                             'cube_time': round(sl_info.cube_time,2),
@@ -154,13 +157,14 @@ def gold_run(delta_t, J1_cut, J2_cut, zodi_cut, io_correct, superdark, in_aor):
                             'SL1_map_depth': sl_info.o1_depth,
                             'SL2_map_depth': sl_info.o2_depth,
                             }
+                            sl_info.generate_ds9_regionfiles()
 
                             with open(diag_name+'.pkl', 'wb') as fp:
                                 pickle.dump(sl_diag_data, fp)
                             log.append(str(datetime.datetime.now())+' : '+'diagnostics saved.')
 
-                        except: 
-                            log.append(str(datetime.datetime.now())+' : '+'diagnostics failed. Moving on')
+                        except Exception as e: 
+                            log.append(str(datetime.datetime.now())+' : '+'diagnostics failed. Reason: '+str(e))
                             pass
 
                     if not has_ll: log.append(str(datetime.datetime.now())+' : '+'no LL in this AORKEY')
@@ -173,8 +177,8 @@ def gold_run(delta_t, J1_cut, J2_cut, zodi_cut, io_correct, superdark, in_aor):
                             ll_info = simlacube(inputs)
                             log.append(str(datetime.datetime.now())+' : '+'successfully made LL cubes in '+str(round(ll_info.cube_time,2))+'s')
 
-                        except: 
-                            log.append(str(datetime.datetime.now())+' : '+'unknown error occured. Moving on')
+                        except Exception as e: 
+                            log.append(str(datetime.datetime.now())+' : '+'ERROR: '+str(e))
                             failed_cubes.append(str(aor)+' LL')
                             pass
 
@@ -185,7 +189,6 @@ def gold_run(delta_t, J1_cut, J2_cut, zodi_cut, io_correct, superdark, in_aor):
                             diag_name = new_rootdir+run_name+'diagnostics/'+o+'_'+str(aor)+'_'+'_deltat='+str(delta_t)+'_J1='+\
                                                     str(J1_cut)+'_J2='+str(J2_cut)+'_zodicut='+str(zodi_cut)+'_LL_diag'
                             ll_info.generate_report(diag_name+'.pdf')
-                            ll_info.generate_ds9_regionfiles()
                             ll_diag_data = {
                             'AORKEY': aor,
                             'cube_time': round(ll_info.cube_time,2),
@@ -208,13 +211,14 @@ def gold_run(delta_t, J1_cut, J2_cut, zodi_cut, io_correct, superdark, in_aor):
                             'LL1_map_depth': ll_info.o1_depth,
                             'LL2_map_depth': ll_info.o2_depth,
                             }
+                            ll_info.generate_ds9_regionfiles()
 
                             with open(diag_name+'.pkl', 'wb') as fp:
                                 pickle.dump(ll_diag_data, fp)
                             log.append(str(datetime.datetime.now())+' : '+'diagnostics saved.')
 
-                        except: 
-                            log.append(str(datetime.datetime.now())+' : '+'diagnostics failed. Moving on')
+                        except Exception as e: 
+                            log.append(str(datetime.datetime.now())+' : '+'diagnostics failed. Reason: '+str(e))
                             pass
 
 
@@ -253,10 +257,10 @@ def gold_run(delta_t, J1_cut, J2_cut, zodi_cut, io_correct, superdark, in_aor):
         return l, gold_spec, simla_spec
 
     all_goldcubes = []
-    rootdir = '/home/work/simla/test_cubes/gold_standard/fitsfiles/'
-    for directory in os.listdir(rootdir):
-        for obj in os.listdir(rootdir+directory):
-            cubes = glob.glob(rootdir+directory+'/'+obj+'/*cube_gold*.fits')
+    golds_rootdir = '/home/work/simla/test_cubes/gold_standard/fitsfiles/'
+    for directory in os.listdir(golds_rootdir):
+        for obj in os.listdir(golds_rootdir+directory):
+            cubes = glob.glob(golds_rootdir+directory+'/'+obj+'/*cube_gold*.fits')
             for i in cubes:
                 if 'SL' in i or 'LL' in i:
                     if 'unc' not in i:
@@ -290,46 +294,60 @@ def gold_run(delta_t, J1_cut, J2_cut, zodi_cut, io_correct, superdark, in_aor):
                 sl1_lam = l
                 np.savetxt(directory+'simlagold_spectra/'+objname+'_SL1_SIMLA_faint.txt', faint_simla)
                 np.savetxt(directory+'simlagold_spectra/'+objname+'_SL1_GOLD_faint.txt', faint_gold)
+                np.savetxt(directory+'simlagold_spectra/'+objname+'_SL1_SIMLA_bright.txt', bright_simla)
+                np.savetxt(directory+'simlagold_spectra/'+objname+'_SL1_GOLD_bright.txt', bright_gold)
 
             elif order == 'SL2':
                 sl2_lam = l
                 np.savetxt(directory+'simlagold_spectra/'+objname+'_SL2_SIMLA_faint.txt', faint_simla)
                 np.savetxt(directory+'simlagold_spectra/'+objname+'_SL2_GOLD_faint.txt', faint_gold)
+                np.savetxt(directory+'simlagold_spectra/'+objname+'_SL2_SIMLA_bright.txt', bright_simla)
+                np.savetxt(directory+'simlagold_spectra/'+objname+'_SL2_GOLD_bright.txt', bright_gold)
 
             elif order == 'LL1':
                 ll1_lam = l
                 np.savetxt(directory+'simlagold_spectra/'+objname+'_LL1_SIMLA_faint.txt', faint_simla)
                 np.savetxt(directory+'simlagold_spectra/'+objname+'_LL1_GOLD_faint.txt', faint_gold)
+                np.savetxt(directory+'simlagold_spectra/'+objname+'_LL1_SIMLA_bright.txt', bright_simla)
+                np.savetxt(directory+'simlagold_spectra/'+objname+'_LL1_GOLD_bright.txt', bright_gold)
 
             elif order == 'LL2':
                 ll2_lam = l
                 np.savetxt(directory+'simlagold_spectra/'+objname+'_LL2_SIMLA_faint.txt', faint_simla)
                 np.savetxt(directory+'simlagold_spectra/'+objname+'_LL2_GOLD_faint.txt', faint_gold)
+                np.savetxt(directory+'simlagold_spectra/'+objname+'_LL2_SIMLA_bright.txt', bright_simla)
+                np.savetxt(directory+'simlagold_spectra/'+objname+'_LL2_GOLD_bright.txt', bright_gold)
 
-        except: pass
+        except Exception as e: pass
 
     np.savetxt(directory+'simlagold_spectra/SL1_wavs.txt', sl1_lam)
     np.savetxt(directory+'simlagold_spectra/SL2_wavs.txt', sl2_lam)
     np.savetxt(directory+'simlagold_spectra/LL1_wavs.txt', ll1_lam)
     np.savetxt(directory+'simlagold_spectra/LL2_wavs.txt', ll2_lam)
 
-# Specifically asked for runs
-standard_run = gold_run(3, 0.5, 3, None, True, True, True)
-no_inAOR_run = gold_run(3, 0.5, 3, None, True, True, False)
-pessimistic_run = gold_run(5, 2, 5, None, False, False, False)
-pessimistic_run2 = gold_run(0.1, 0.5, 5, 10, True, True, False)
-generous_backgrounds_run = gold_run(3, 2, 5, None, True, True, True)
-no_superdark_run = gold_run(3, 0.5, 3, None, True, False, True)
-no_superdark_withzodicut_run = gold_run(3, 0.5, 3, 10, True, False, True)
-superdark_withzodicut_run = gold_run(3, 0.5, 3, 10, True, True, True)
+# test_run = gold_run(0.42, 0.5, 3, None, True, True, False)
+
+# Custom Runs
+standard_run = gold_run(3, 0.5, 3, None, True, True, False)
+no_inAOR_run = gold_run(3, 0.5, 3, None, True, True, True)
+pessimistic_run = gold_run(5, 2, 5, None, False, False, True)
+pessimistic_run2 = gold_run(0.1, 0.5, 5, 10, True, True, True)
+generous_backgrounds_run = gold_run(3, 2, 5, None, True, True, False)
+no_superdark_run = gold_run(3, 0.5, 3, None, True, False, False)
+no_superdark_withzodicut_run = gold_run(3, 0.5, 3, 10, True, False, False)
+superdark_withzodicut_run = gold_run(3, 0.5, 3, 10, True, True, False)
 
 # delta_t sweep
 for dt in [0.1, 0.5, 1, 2, 5, 10, 20]:
-    run = gold_run(dt, 0.5, 3, None, True, True, True)
+    run = gold_run(dt, 0.5, 3, None, True, True, False)
     
 # J2 sweep
 for J in [0.5, 1, 1.5, 2, 2.5]:
-    run = gold_run(3, 0.5, J, None, True, True, True)
+    run = gold_run(3, 0.5, J, None, True, True, False)
+
+# Zodicut sweep
+for zc in [1, 3, 5, 10, 15, 20]:
+    run = gold_run(3, 0.5, 3, zc, True, True, True)
 
 # INPUTS KEY:
 # delta_t, J1_cut, J2_cut, zodi_cut, io_correct, superdark, in_aor

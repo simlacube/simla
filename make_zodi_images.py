@@ -6,6 +6,7 @@ from simla import tools
 from scipy import interpolate
 import glob
 import os
+simlapath = os.path.dirname(os.path.realpath(__file__))
 
 # Make BCD-like images for each AORKEY that has the modeled zodiacal light spectrum on them
 
@@ -37,28 +38,28 @@ def imprint_spectrum(in_wav, in_spec, header):
 
     if chnlnum < 2:
         conversion = [
-        './calib/sl_conversion.fits',
-        './calib/sh_conversion.fits'
+        simlapath+'/calib/sl_conversion.fits',
+        simlapath+'/calib/sh_conversion.fits'
         ][chnlnum]
         
     elif chnlnum == 2: # handle the gain change in LL
         if header['MJD_OBS'] < 54403.0:
-            conversion = './calib/ll_conversion.fits'
+            conversion = simlapath+'/calib/ll_conversion.fits'
         elif header['MJD_OBS'] >= 54403.0:
-            conversion = './calib/lla_conversion.fits'
+            conversion = simlapath+'/calib/lla_conversion.fits'
             
     elif chnlnum == 3: # handle the gain change in LH
         if header['MJD_OBS'] < 53653.12:
-            conversion = './calib/lh_conversion.fits'
+            conversion = simlapath+'/calib/lh_conversion.fits'
         elif header['MJD_OBS'] >= 53653.12:
-            conversion = './calib/lha_conversion.fits'
+            conversion = simlapath+'/calib/lha_conversion.fits'
     conv = fits.getdata(conversion)
     
     contribution_cube = [
-        './calib/cc_b0v6.npy',
-        './calib/cc_b1v9.npy',
-        './calib/cc_b2v10.npy',
-        './calib/cc_b3v7.npy',
+        simlapath+'/calib/cc_b0v6.npy',
+        simlapath+'/calib/cc_b1v9.npy',
+        simlapath+'/calib/cc_b2v10.npy',
+        simlapath+'/calib/cc_b3v7.npy',
     ][chnlnum]
     cc = np.load(contribution_cube)
     
@@ -95,16 +96,16 @@ zodi_wavs = [np.load('/home/work/simla/zodi_spectra/sl_wavelengths.npy'),
              None]
 
 # Load in the SL CVZ average
-sl_cvz_average = np.load('./cvz_campaign_spectra/cvz_average_sl_zodispec.npy')
+sl_cvz_average = np.load(simlapath+'/cvz_campaign_spectra/cvz_average_sl_zodispec.npy')
 
 # Load in campaign data for unrepresented campaigns
-campdata = np.load('./IRS_campaigns.npy')
+campdata = np.load(simlapath+'/IRS_campaigns.npy')
 camp_nums = campdata.T[0].astype(float)
 camp_names = campdata.T[1]
 camp_starts = campdata.T[2].astype(float)
 camp_ends = campdata.T[3].astype(float)
 
-if not os.path.exists('./zodi_images/')
+if not os.path.exists(simlapath+'/zodi_images/')
 
 for rep in tqdm(bcd_reps):
     
@@ -123,7 +124,7 @@ for rep in tqdm(bcd_reps):
     # campaign-dependent CVZ spectrum.
     elif imhead['CHNLNUM'] == 2:
         campaign = imhead['CAMPAIGN']
-        cvz_selection = glob.glob('./cvz_campaign_spectra/cvz_for_'+campaign+'.npy')
+        cvz_selection = glob.glob(simlapath+'/cvz_campaign_spectra/cvz_for_'+campaign+'.npy')
         if len(cvz_selection) > 0: cvz_spec = np.load(cvz_selection[0])
         else:
             # For some reason, not all campaigns are represented...
@@ -131,10 +132,10 @@ for rep in tqdm(bcd_reps):
             t = imhead['MJD_OBS']
             nearest_camp = camp_names[np.where(camp_starts==\
                     camp_starts[np.abs(camp_starts - t).argmin()])][0]
-            cvz_spec = np.load('./cvz_campaign_spectra/cvz_for_'+nearest_camp+'.npy')
+            cvz_spec = np.load(simlapath+'/cvz_campaign_spectra/cvz_for_'+nearest_camp+'.npy')
     zodi_spec = zodi_spec - cvz_spec
     
     zodi_bcd = imprint_spectrum(zodi_lam, zodi_spec, imhead)
     
     name = str(imhead['AORKEY'])+'_'+['SL', 'SH', 'LL', 'LH'][imhead['CHNLNUM']]
-    np.save('./zodi_images/'+name, zodi_bcd)
+    np.save(simlapath+'/zodi_images/'+name, zodi_bcd)

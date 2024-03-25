@@ -2,13 +2,14 @@ from simla.database import query, bcd
 import numpy as np
 from tqdm import tqdm
 import os
+simlapath = os.path.dirname(os.path.realpath(__file__))
 
 # This script will synthesize model zodi spectra at the CVZ 
 # to make the model spectra that is subtracted from each model
 # zodi spectrum during each campaign. (for LL)
 
 # Load in the necessary data
-campdata = np.load('./IRS_campaigns.npy')
+campdata = np.load(simlapath+'/IRS_campaigns.npy')
 camp_nums = campdata.T[0].astype(float)
 camp_names = campdata.T[1]
 camp_starts = campdata.T[2].astype(float)
@@ -21,8 +22,8 @@ search = query(bcd.select(bcd.AORKEY, bcd.MJD_OBS)\
 cvz_aor = search['AORKEY'].to_numpy()
 cvz_time = search['MJD_OBS'].to_numpy()
 
-if not os.path.exists('./cvz_campaign_spectra/'):
-    os.mkdir('./cvz_campaign_spectra/')
+if not os.path.exists(simlapath+'/cvz_campaign_spectra/'):
+    os.mkdir(simlapath+'/cvz_campaign_spectra/')
 
 for camp in tqdm(camp_nums):
     
@@ -70,7 +71,7 @@ for camp in tqdm(camp_nums):
     cvz_zodi = np.nanmean(cvz_zodis, axis=0)
     
     campname = camp_names[np.where(camp_nums==camp)][0]
-    np.save('./cvz_campaign_spectra/cvz_for_'+campname, cvz_zodi)
+    np.save(simlapath+'/cvz_campaign_spectra/cvz_for_'+campname, cvz_zodi)
     
 # For SL, the average over all model CVZ spectra works well
 sl_cvz_aors = query(bcd.select(bcd.AORKEY).where(bcd.OBJECT=='NCVZ-dark-spot')\
@@ -78,7 +79,7 @@ sl_cvz_aors = query(bcd.select(bcd.AORKEY).where(bcd.OBJECT=='NCVZ-dark-spot')\
 sl_cvz_aors = list(set(sl_cvz_aors)) # Unique AORKEYs only
 sl_cvz_zodis = [np.load('/home/work/simla/zodi_spectra/'+str(aor)+'_sl_zodionly.npy') for aor in sl_cvz_aors]
 sl_average_cvz = np.mean(np.asarray(sl_cvz_zodis), axis=0)
-np.save('./cvz_campaign_spectra/cvz_average_sl_zodispec', sl_average_cvz)
+np.save(simlapath+'/cvz_campaign_spectra/cvz_average_sl_zodispec', sl_average_cvz)
 
 ############################################################
 # Below this line is for plotting purposes only
@@ -112,7 +113,7 @@ for cvzobs in tqdm(cvz_bcds):
         l, f = extractor.fullslit_bcd_spectrum(imdat, imhead, 1)
 
         zodi_spec = np.load('/home/work/simla/zodi_spectra/'+str(aor)+'_ll_zodionly.npy')
-        cvz_spec = np.load('./cvz_campaign_spectra/cvz_for_'+campaign+'.npy')
+        cvz_spec = np.load(simlapath+'/cvz_campaign_spectra/cvz_for_'+campaign+'.npy')
         zodi_spec = zodi_spec - cvz_spec 
 
         mod_fav.append(np.nanmedian(zodi_spec))
@@ -133,4 +134,4 @@ plt.hexbin(x=px, y=py, cmap='rainbow', bins='log', mincnt=1, gridsize=70)
 plt.ylabel('MJy/sr')
 plt.xlabel('MJD')
 plt.colorbar()
-plt.savefig('./CVZ_campaign_plot.pdf', format='pdf')
+plt.savefig(simlapath+'/CVZ_campaign_plot.pdf', format='pdf')
