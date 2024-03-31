@@ -1,5 +1,4 @@
 import numpy as np
-import os
 import glob
 from simlacube import simlacube
 from simla import tools
@@ -8,6 +7,8 @@ from simla.database import query, bcd, stats, baby, qFull, connect, zodi,\
     wmap, qAll, shardphot, galcoords, subspec, qShard, pq, shardpos, judge2
 import datetime
 import ast
+import os
+simlapath = os.path.dirname(os.path.realpath(__file__))
 
 # INPUTS FOR THIS RUN #
 #################################################
@@ -34,7 +35,7 @@ run_name = 'dt='+str(delta_t)+\
 if not os.path.exists(new_rootdir+run_name):
     os.mkdir(new_rootdir+run_name)
 
-prognames_map = p = np.genfromtxt('./prognames.txt', dtype=str)
+prognames_map = p = np.genfromtxt(simlapath+'/prognames.txt', dtype=str)
 prognames = prognames_map.T[0]
 progids = prognames_map.T[1]
 
@@ -73,160 +74,160 @@ for i in range(len(progids)):
         has_ll = True if len(query(bcd.select(bcd.DCEID).where(bcd.AORKEY==aor)\
                                .where(bcd.CHNLNUM==2))['DCEID'].to_numpy()) > 0 else False
         
-        if has_sl or has_ll:
-        
-            log = []
-            failed_cubes = []
+                if has_sl or has_ll:
 
-            if aors_in_progid.index(aor) == 0:
-                log.append(str(datetime.datetime.now())+' : '+'beginning program: '+\
-                           progname+' (PROGID: '+progid+')')
+                    log = []
+                    failed_cubes = []
 
-            aor_counter += 1
+                    if aors_in_progid.index(aor) == 0:
+                        log.append(str(datetime.datetime.now())+' : '+'beginning program: '+\
+                                   progname+' (PROGID: '+progid+')')
 
-            o = query(bcd.select(bcd.OBJECT).where(bcd.AORKEY==aor))['OBJECT'][0]
-            o = o.replace(' ','_').replace('/','-').replace('(','_').replace(')','_').replace(',','_')
-            if not os.path.exists(progdir+o):
-                os.system('mkdir '+progdir+o)
+                    aor_counter += 1
 
-            aordir = progdir+o+'/'+str(aor)
-            if not os.path.exists(aordir):
-                os.system('mkdir '+aordir)
+                    o = query(bcd.select(bcd.OBJECT).where(bcd.AORKEY==aor))['OBJECT'][0]
+                    o = o.replace(' ','_').replace('/','-').replace('(','_').replace(')','_').replace(',','_')
+                    if not os.path.exists(progdir+o):
+                        os.system('mkdir '+progdir+o)
 
-            log.append(str(datetime.datetime.now())+' : '+'now processing AORKEY: '+str(aor)+', OBJECT: '+o)
-            log.append(str(datetime.datetime.now())+' : '+'this is aor '+str(aor_counter)+'/'+str(len(all_aors)))
+                    aordir = progdir+o+'/'+str(aor)
+                    if not os.path.exists(aordir):
+                        os.system('mkdir '+aordir)
 
-            inputs = {
-                'cube_AORKEY': aor,
-                'channel': 0,
-                'delta_t': delta_t,
-                'J1_cut': J1_cut, 
-                'J2_cut': J2_cut,
-                'savename': aordir+'/'+str(aor)+'_'+o,
-                'dev': True,
-                'aperture': 'standard',
-                'isgold': False,
-                'gold_cube': None,
-                'io_correct': io_correct,
-                'zodi_cut': zodi_cut,
-                'superdark': superdark,
-                'ignore_in_AORKEY': in_aor
-            }
+                    log.append(str(datetime.datetime.now())+' : '+'now processing AORKEY: '+str(aor)+', OBJECT: '+o)
+                    log.append(str(datetime.datetime.now())+' : '+'this is aor '+str(aor_counter)+'/'+str(len(all_aors)))
 
-            if not has_sl: log.append(str(datetime.datetime.now())+' : '+'no SL in this AORKEY')
-
-            if has_sl:
-                log.append(str(datetime.datetime.now())+' : '+'making SL cubes...')
-                try:
-
-                    sl_info = simlacube(inputs)
-                    log.append(str(datetime.datetime.now())+' : '+'successfully made SL cubes in '+str(round(sl_info.cube_time,2))+'s')
-
-                except: 
-                    log.append(str(datetime.datetime.now())+' : '+'unknown error occured. Moving on')
-                    failed_cubes.append(str(aor)+' SL')
-                    pass
-
-                try:
-
-                    log.append(str(datetime.datetime.now())+' : '+'now preparing the diagnostics...')
-                    diag_name = new_rootdir+run_name+'diagnostics/'+o+'_'+str(aor)+'_'+'_deltat='+str(delta_t)+'_J1='+\
-                                            str(J1_cut)+'_J2='+str(J2_cut)+'_zodicut='+str(zodi_cut)+'_SL_diag'
-                    sl_info.generate_report(diag_name+'.pdf')
-                    sl_info.generate_ds9_regionfiles()
-                    sl_diag_data = {
-                    'AORKEY': aor,
-                    'cube_time': round(sl_info.cube_time,2),
-                    'object': sl_info.object_name,
-                    'galactic_coords': sl_info.gal_coords,
-                    'zodi_estimate': sl_info.LL1_C_zodi,
-                    'mjd': sl_info.AOR_MJD,
-                    'number_of_BCDs': sl_info.bcds_in_AOR,
-                    'J1_fraction': sl_info.j1_fraction,
-                    'J2_fraction': sl_info.j2_fraction,
-                    'judge_agreement': sl_info.judge_agreement,
-                    'SL1_RMS': sl_info.cube_rms[0],
-                    'SL2_RMS': sl_info.cube_rms[1],
-                    'SL1_MAD': sl_info.cube_mad[0],
-                    'SL2_MAD': sl_info.cube_mad[1],
-                    'RAMPTIME': sl_info.RAMPTIME,
-                    'SAMPTIME': sl_info.SAMPTIME,
-                    'EXPTOT_T': sl_info.EXPTOT_T,
-                    'CHNLNUM': 0,
-                    'SL1_map_depth': sl_info.o1_depth,
-                    'SL2_map_depth': sl_info.o2_depth,
+                    inputs = {
+                        'cube_AORKEY': aor,
+                        'channel': 0,
+                        'delta_t': delta_t,
+                        'J1_cut': J1_cut, 
+                        'J2_cut': J2_cut,
+                        'savename': aordir+'/'+str(aor)+'_'+o,
+                        'dev': True,
+                        'aperture': 'standard',
+                        'isgold': False,
+                        'gold_cube': None,
+                        'io_correct': io_correct,
+                        'zodi_cut': zodi_cut,
+                        'superdark': superdark,
+                        'ignore_in_AORKEY': in_aor
                     }
 
-                    with open(diag_name+'.pkl', 'wb') as fp:
-                        pickle.dump(sl_diag_data, fp)
-                    log.append(str(datetime.datetime.now())+' : '+'diagnostics saved.')
+                    if not has_sl: log.append(str(datetime.datetime.now())+' : '+'no SL in this AORKEY')
 
-                except: 
-                    log.append(str(datetime.datetime.now())+' : '+'diagnostics failed. Moving on')
-                    pass
+                    if has_sl:
+                        log.append(str(datetime.datetime.now())+' : '+'making SL cubes...')
+                        try:
 
-            if not has_ll: log.append(str(datetime.datetime.now())+' : '+'no LL in this AORKEY')
+                            sl_info = simlacube(inputs)
+                            log.append(str(datetime.datetime.now())+' : '+'successfully made SL cubes in '+str(round(sl_info.cube_time,2))+'s')
 
-            if has_ll:
-                log.append(str(datetime.datetime.now())+' : '+'making LL cubes...')
-                try:
+                        except Exception as e: 
+                            log.append(str(datetime.datetime.now())+' : '+'ERROR: '+e)
+                            failed_cubes.append(str(aor)+' SL')
+                            pass
 
-                    inputs['channel']=2
-                    ll_info = simlacube(inputs)
-                    log.append(str(datetime.datetime.now())+' : '+'successfully made LL cubes in '+str(round(ll_info.cube_time,2))+'s')
+                        try:
 
-                except: 
-                    log.append(str(datetime.datetime.now())+' : '+'unknown error occured. Moving on')
-                    failed_cubes.append(str(aor)+' LL')
-                    pass
+                            log.append(str(datetime.datetime.now())+' : '+'now preparing the diagnostics...')
+                            diag_name = new_rootdir+run_name+'diagnostics/'+o+'_'+str(aor)+'_'+'_deltat='+str(delta_t)+'_J1='+\
+                                                    str(J1_cut)+'_J2='+str(J2_cut)+'_zodicut='+str(zodi_cut)+'_SL_diag'
+                            sl_info.generate_report(diag_name+'.pdf')
+                            sl_diag_data = {
+                            'AORKEY': aor,
+                            'cube_time': round(sl_info.cube_time,2),
+                            'object': sl_info.object_name,
+                            'galactic_coords': sl_info.gal_coords,
+                            'zodi_estimate': sl_info.LL1_C_zodi,
+                            'mjd': sl_info.AOR_MJD,
+                            'number_of_BCDs': sl_info.bcds_in_AOR,
+                            'J1_fraction': sl_info.j1_fraction,
+                            'J2_fraction': sl_info.j2_fraction,
+                            'judge_agreement': sl_info.judge_agreement,
+                            'SL1_RMS': sl_info.cube_rms[0],
+                            'SL2_RMS': sl_info.cube_rms[1],
+                            'SL1_MAD': sl_info.cube_mad[0],
+                            'SL2_MAD': sl_info.cube_mad[1],
+                            'RAMPTIME': sl_info.RAMPTIME,
+                            'SAMPTIME': sl_info.SAMPTIME,
+                            'EXPTOT_T': sl_info.EXPTOT_T,
+                            'CHNLNUM': 0,
+                            'SL1_map_depth': sl_info.o1_depth,
+                            'SL2_map_depth': sl_info.o2_depth,
+                            }
+                            sl_info.generate_ds9_regionfiles()
+
+                            with open(diag_name+'.pkl', 'wb') as fp:
+                                pickle.dump(sl_diag_data, fp)
+                            log.append(str(datetime.datetime.now())+' : '+'diagnostics saved.')
+
+                        except Exception as e: 
+                            log.append(str(datetime.datetime.now())+' : '+'diagnostics failed. Reason: '+e)
+                            pass
+
+                    if not has_ll: log.append(str(datetime.datetime.now())+' : '+'no LL in this AORKEY')
+
+                    if has_ll:
+                        log.append(str(datetime.datetime.now())+' : '+'making LL cubes...')
+                        try:
+
+                            inputs['channel']=2
+                            ll_info = simlacube(inputs)
+                            log.append(str(datetime.datetime.now())+' : '+'successfully made LL cubes in '+str(round(ll_info.cube_time,2))+'s')
+
+                        except Exception as e: 
+                            log.append(str(datetime.datetime.now())+' : '+'ERROR: '+e)
+                            failed_cubes.append(str(aor)+' LL')
+                            pass
 
 
-                try:
+                        try:
 
-                    log.append(str(datetime.datetime.now())+' : '+'now preparing the diagnostics...')
-                    diag_name = new_rootdir+run_name+'diagnostics/'+o+'_'+str(aor)+'_'+'_deltat='+str(delta_t)+'_J1='+\
-                                            str(J1_cut)+'_J2='+str(J2_cut)+'_zodicut='+str(zodi_cut)+'_LL_diag'
-                    ll_info.generate_report(diag_name+'.pdf')
-                    ll_info.generate_ds9_regionfiles()
-                    ll_diag_data = {
-                    'AORKEY': aor,
-                    'cube_time': round(ll_info.cube_time,2),
-                    'object': ll_info.object_name,
-                    'galactic_coords': ll_info.gal_coords,
-                    'zodi_estimate': ll_info.LL1_C_zodi,
-                    'mjd': ll_info.AOR_MJD,
-                    'number_of_BCDs': ll_info.bcds_in_AOR,
-                    'J1_fraction': ll_info.j1_fraction,
-                    'J2_fraction': ll_info.j2_fraction,
-                    'judge_agreement': ll_info.judge_agreement,
-                    'LL1_RMS': ll_info.cube_rms[0],
-                    'LL2_RMS': ll_info.cube_rms[1],
-                    'LL1_MAD': ll_info.cube_mad[0],
-                    'LL2_MAD': ll_info.cube_mad[1],
-                    'RAMPTIME': ll_info.RAMPTIME,
-                    'SAMPTIME': ll_info.SAMPTIME,
-                    'EXPTOT_T': ll_info.EXPTOT_T,
-                    'CHNLNUM': 2,
-                    'LL1_map_depth': ll_info.o1_depth,
-                    'LL2_map_depth': ll_info.o2_depth,
-                    }
+                            log.append(str(datetime.datetime.now())+' : '+'now preparing the diagnostics...')
+                            diag_name = new_rootdir+run_name+'diagnostics/'+o+'_'+str(aor)+'_'+'_deltat='+str(delta_t)+'_J1='+\
+                                                    str(J1_cut)+'_J2='+str(J2_cut)+'_zodicut='+str(zodi_cut)+'_LL_diag'
+                            ll_info.generate_report(diag_name+'.pdf')
+                            ll_diag_data = {
+                            'AORKEY': aor,
+                            'cube_time': round(ll_info.cube_time,2),
+                            'object': ll_info.object_name,
+                            'galactic_coords': ll_info.gal_coords,
+                            'zodi_estimate': ll_info.LL1_C_zodi,
+                            'mjd': ll_info.AOR_MJD,
+                            'number_of_BCDs': ll_info.bcds_in_AOR,
+                            'J1_fraction': ll_info.j1_fraction,
+                            'J2_fraction': ll_info.j2_fraction,
+                            'judge_agreement': ll_info.judge_agreement,
+                            'LL1_RMS': ll_info.cube_rms[0],
+                            'LL2_RMS': ll_info.cube_rms[1],
+                            'LL1_MAD': ll_info.cube_mad[0],
+                            'LL2_MAD': ll_info.cube_mad[1],
+                            'RAMPTIME': ll_info.RAMPTIME,
+                            'SAMPTIME': ll_info.SAMPTIME,
+                            'EXPTOT_T': ll_info.EXPTOT_T,
+                            'CHNLNUM': 2,
+                            'LL1_map_depth': ll_info.o1_depth,
+                            'LL2_map_depth': ll_info.o2_depth,
+                            }
+                            ll_info.generate_ds9_regionfiles()
 
-                    with open(diag_name+'.pkl', 'wb') as fp:
-                        pickle.dump(ll_diag_data, fp)
-                    log.append(str(datetime.datetime.now())+' : '+'diagnostics saved.')
+                            with open(diag_name+'.pkl', 'wb') as fp:
+                                pickle.dump(ll_diag_data, fp)
+                            log.append(str(datetime.datetime.now())+' : '+'diagnostics saved.')
 
-                except: 
-                    log.append(str(datetime.datetime.now())+' : '+'diagnostics failed. Moving on')
-                    pass
+                        except Exception as e: 
+                            log.append(str(datetime.datetime.now())+' : '+'diagnostics failed. Reason: '+e)
+                            pass
 
 
-            with open(log_fname, 'a') as log_f:
-                for l in log:
-                       log_f.write(l+' \n')
+                    with open(log_fname, 'a') as log_f:
+                        for l in log:
+                               log_f.write(l+' \n')
 
-            with open(failed_cubes_fname, 'a') as fc_f:
-                for l in failed_cubes:
-                       fc_f.write(l+' \n')
+                    with open(failed_cubes_fname, 'a') as fc_f:
+                        for l in failed_cubes:
+                               fc_f.write(l+' \n')
 
 def ds9_to_poly(regfile):
     regdata = ast.literal_eval(open(regfile).read().split('polygon')[-1])

@@ -21,7 +21,8 @@ from io_correct import SL_IO_correct_image
 from scipy import stats
 
 def simlacube(inputs):
-    
+
+    simlapath = os.path.dirname(os.path.realpath(__file__))
     cube_start_time = time.time()
     
     IDL.run('.RESET_SESSION')
@@ -96,7 +97,7 @@ def simlacube(inputs):
 
     # load in files needed for IO removal
     if chnlnum == 0 and inputs['io_correct'] == True:
-        flatfield = fits.getdata('./calib/b0_flatfield.fits')[0]
+        flatfield = fits.getdata(simlapath+'/calib/b0_flatfield.fits')[0]
         SL1_mask = fits.getdata('/home/work/simla/calib/masks/irs_mask_SL1.fits')
         SL2_mask = fits.getdata('/home/work/simla/calib/masks/irs_mask_SL2.fits')
         SL1_mask = np.where(SL1_mask==1, 1, np.nan)
@@ -134,11 +135,11 @@ def simlacube(inputs):
         unique_dceids_in_aor = np.unique(dceids[aor_indices])
 
         # load in the frames that will be subtracted off of everything in this AOR
-        zodi_image = np.load('./zodi_images/'+str(aorkey)+'_'+ordername+'.npy')
+        zodi_image = np.load(simlapath+'/zodi_images/'+str(aorkey)+'_'+ordername+'.npy')
         
         # get interpolated superdark for this AOR
         if inputs['superdark']:
-            superdark = np.load('./tailored_superdarks/'+str(aorkey)+'_'+ordername+'.npy')
+            superdark = np.load(simlapath+'/tailored_superdarks/'+str(aorkey)+'_'+ordername+'.npy')
 
         # loop through the DCEIDs in this AOR
         for dceid in unique_dceids_in_aor:
@@ -213,7 +214,7 @@ def simlacube(inputs):
     trimmed_dark_stack = np.nanmean(trimmed_dark_stack, axis=0)
 
     # load in zodi and leftover images for the cube AOR
-    zodi_image = np.load('./zodi_images/'+str(inputs['cube_AORKEY'])+'_'+ordername+'.npy')
+    zodi_image = np.load(simlapath+'/zodi_images/'+str(inputs['cube_AORKEY'])+'_'+ordername+'.npy')
     
     # add the zodi and the leftover in to the dark
     dark = trimmed_dark_stack + zodi_image
@@ -260,15 +261,16 @@ def simlacube(inputs):
     
     # create an interpolated superdark for the cube AOR, and add it to the background
     if inputs['superdark']:
-        cube_superdark = np.load('./tailored_superdarks/'+\
+        cube_superdark = np.load(simlapath+'/tailored_superdarks/'+\
                           str(inputs['cube_AORKEY'])+'_'+ordername+'.npy')
         dark = dark + cube_superdark
     
-    # if SL, create IO image from cube BCDs to be added to the background
-    temp_dir = './temp/'
+    # if SL, create IO image from each cube BCD and remove
+    temp_dir = simlapath+'/temp/'
+    if not os.path.exists(temp_dir):
+        os.mkdir(temp_dir)
+        np.save(temp_dir+'SPITZER_DUMMY', [])
     if inputs['channel'] == 0 and inputs['io_correct'] == True:
-
-        if not os.path.exists()
         
         os.system('rm '+temp_dir+'SPITZER*')
         os.system('cp '+cube_bcds[0].split('SPITZER')[0]+'* '+temp_dir)
@@ -315,10 +317,11 @@ def simlacube(inputs):
     
     # Save the shards used as backgrounds
     shardlistfile = open(inputs['savename']+'_'+ordername+'_shardlist.txt', 'w')
-    shardlistfile.write('DCEID    ORDER1_SHARDS    ORDER2_SHARDS')
+    shardlistfile.write('AORKEY    DCEID    ORDER1_SHARDS    ORDER2_SHARDS')
     shardlistfile.write('\n')
-    for dceid in dceids:
+    for dceid in np.unique(dceids):
         indices = np.where(dceids==dceid)
+        aorkey = aorkeys[indices][0]
         order1_shards = []
         order2_shards = []
         for i in indices[0]: 
@@ -327,7 +330,7 @@ def simlacube(inputs):
                 order1_shards.append(subslits[i])
             elif suborder_num == 2:
                 order2_shards.append(subslits[i])
-        shardlistfile.write(str(dceid)+'    '+str(order1_shards)+'    '+str(order2_shards))
+        shardlistfile.write(str(aorkey)+'    '+str(dceid)+'    '+str(order1_shards)+'    '+str(order2_shards))
         shardlistfile.write('\n')
         
     # if wanted, load in the new cubes and do diagnostics on them
