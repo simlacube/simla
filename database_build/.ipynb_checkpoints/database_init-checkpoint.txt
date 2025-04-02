@@ -1,0 +1,95 @@
+# SQL COMMANDS FOR INITIALIZING THE SIMLA DB
+# Copy and paste-able
+
+# BCD_METADATA
+CREATE TABLE bcd_metadata (
+DCEID int(11),
+FILE_NAME varchar(255),
+AORKEY int(11),
+CHNLNUM int,
+CAMPAIGN varchar(255),
+PROGID int(11),
+OBJECT varchar(255),
+OBJTYPE varchar(255),
+RA_FOV float(16, 13),
+DEC_FOV float(16, 13),
+PA_FOV float(16, 13),
+MJD_OBS float(13, 7),
+RAMPTIME float,
+SAMPTIME float,
+AOT_TYPE varchar(255),
+FOVNAME varchar(255),
+FOVID int(11),
+STEPSPAR int(11),
+STEPSPER int(11)
+);
+
+# BCD_WISE_MAP
+CREATE TABLE bcd_wise_map (
+DCEID int(11),
+WISE_FILE varchar(255)
+);
+
+# JUDGE1
+CREATE TABLE judge1 (
+DCEID int(11),
+CHNLNUM int,
+SUBORDER int,
+SHARD int,
+BACKSUB_PHOT float(19, 5)
+);
+
+# JUDGE2
+CREATE TABLE judge2 (
+DCEID int(11),
+CHNLNUM int,
+SUBORDER int,
+SHARD int,
+SPEC0 float(16, 5),
+SPEC1 float(16, 5),
+SPEC2 float(16, 5),
+SPEC3 float(16, 5),
+SPEC4 float(16, 5),
+SPEC5 float(16, 5),
+SPEC6 float(16, 5),
+SPEC7 float(16, 5),
+SPEC8 float(16, 5),
+SPEC9 float(16, 5),
+F_MEDIAN float(16, 5),
+F_MEAN float(16, 5),
+F_STDEV float(16, 5)
+);
+
+# SHARD_POSITIONS
+CREATE TABLE shard_positions (
+DCEID int(11),
+CHNLNUM int,
+SUBORDER int,
+SHARD int,
+C0_R float(16, 13),
+C1_R float(16, 13),
+C2_R float(16, 13),
+C3_R float(16, 13),
+C0_D float(16, 13),
+C1_D float(16, 13),
+C2_D float(16, 13),
+C3_D float(16, 13)
+);
+
+# FOREGROUND_MODEL
+CREATE TABLE foreground_model (
+AORKEY int(11),
+ISM_12 float(16, 5),
+ZODI_12 float(16, 5)
+);
+
+# RUN THIS MAGIC COMMAND
+SET GLOBAL SQL_MODE = ANSI_QUOTES;
+
+# INDICES
+CREATE INDEX bcd_metadata_index ON bcd_metadata (DCEID, AORKEY, CHNLNUM, MJD_OBS, RAMPTIME);
+CREATE INDEX bcd_wise_map_index ON bcd_wise_map (DCEID, WISE_FILE);
+CREATE INDEX shard_positions_index ON shard_positions (DCEID, CHNLNUM, SUBORDER, SHARD);
+CREATE INDEX judge1_index ON judge1 (DCEID, CHNLNUM, SUBORDER, SHARD, BACKSUB_PHOT);
+CREATE INDEX judge2_index ON judge2 (DCEID, CHNLNUM, SUBORDER, SHARD, F_MEDIAN);
+CREATE INDEX foreground_model_index ON foreground_model (AORKEY, ISM_12, ZODI_12);
