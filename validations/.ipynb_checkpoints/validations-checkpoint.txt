@@ -1,0 +1,52 @@
+--- TABLE VALIDATIONS ---
+
+All Tables:
+- Check for the correct number of entries.
+- Check for duplicates.
+
+Joined Tables:
+X Check for duplicates introduced by joining tables with different shapes.
+X For a few random BCDs, show the shard and full slit rectangles plotted on top of WISE images. 
+This plot can also show the photometry per shard from Judge1 and Judge2.
+X Comparisons between judge1 and judge2 photometry.
+X A few stoplight plots.
+
+bcd_metadata:
+- For a random sample, compare DB values with the values inside headers.
+- Histograms of: CHNLNUM, MJD_OBS, RAMPTIME, OBJTYPE, AOT_TYPE.
+
+bcd_wise_map:
+- For a (large-ish) sample, are all computed slit corners inside of the WISE footprint?
+- What is the distribution of distances between a slit FOV and the WISE footprint center?
+What is the maximum of this distribution?
+
+foreground_model:
+- For a random sample, compare the database value to that of the file it is supposed to be from.
+- Plot of the distribution of zodi and ISM values.
+
+judge1:
+- For a random sample, compare database values with on-the-fly WISE photometry extractions.
+- Histogram of photometry values.
+
+judge2: 
+- For a random sample, compare database values with on-the-fly BCD spectrum extractions.
+- Histogram of average spectral values and in the bins, separated by suborder.
+
+shard_positions:
+- Compare some database values with on-the-fly sky positions.
+
+--- ZODI IMAGE VALIDATIONS ---
+
+- Compare a few spectra extracted from zodi images with the saved spectrum files.
+- Sine plots for the CVZ for all campaigns.
+
+--- SUPERDARK VALIDATIONS ---
+
+- For all RAMPTIMES and zodi bins, show the superdarks arranged next to each other (there aren't that many).
+- For some random sample, show trimmed and zodi/superdark subtracted constituent BCDs.
+- For some sample of the tailored superdarks, show the full slit spectra of the bounding 
+superdarks with the spectrum of the tailored superdark hopefully sensibly in between based on its zodi.
+
+
+
+
