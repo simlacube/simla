@@ -1,3 +1,19 @@
+'''
+Computes "Judge 1" photometry, and upload to the judge1 table in the SIMLA database.
+
+Judge 1 photometry is the local background-subtracted WISE W3 photometry (MJy/sr)
+within each shard for SL and LL IRS apertures. It is used to judge whether a shard 
+qualifies as a background, and to identify observations to be used as superdarks.
+
+Backgrounds for WISE data are computed here on-the-fly, and not saved. They are 
+simple planes where the background is inferred from the local minima on a WISE image, 
+see make_wise_bg in simla_utils.py.
+
+Make sure wisepath is set in simla_variables.py
+Prerequisite code: trim_and_shard_masks.py, bcd_metadata.py, bcd_wise_map.py, shard_positions.py (or ..._multip).
+
+'''
+
 import numpy as np
 from astropy.io import fits
 from tqdm import tqdm
@@ -13,7 +29,7 @@ cursor = connection.cursor()
 
 # Get only the WISE files that are touched by SL or LL
 unique_irstarget_wise = np.unique(query( \
-    simladb.select(DB_bcdwise.WISE_FILE).where((DB_bcd.CHNLNUM==0)|(DB_bcd.CHNLNUM==2))) \
+    setup_judge1.select(DB_bcdwise.WISE_FILE).where((DB_bcd.CHNLNUM==0)|(DB_bcd.CHNLNUM==2))) \
                                   ['WISE_FILE'].to_numpy())
 
 

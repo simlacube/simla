@@ -1,3 +1,15 @@
+'''
+Make model zodi spectra for the CVZ averaged together in the same way
+as the IRS calibration darks were averaged. The result is a zodi spectrum
+for each campaign+RAMPTIME combo for accurate zodi subtraction.
+
+We can't know exactly how these were averaged, so we get scale factors empirically.
+
+Make sure the irspath is set in simla_variables.
+Prerequisite code: bcd_metadata.py
+
+'''
+
 import numpy as np
 from tqdm import tqdm
 import os
