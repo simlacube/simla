@@ -1,3 +1,5 @@
+'''Definitions and configurations for the SIMLA database.'''
+
 from sqlalchemy import create_engine, text
 from pypika import Schema, Query as pq
 import pypika
@@ -48,7 +50,7 @@ simladb = pq.from_(DB_bcd)\
 simladbX = simladb.where(\
            (DB_bcd.OBJTYPE.notin(SimlaVar().banned_objtypes))&\
            (DB_bcd.OBJECT.notin(SimlaVar().banned_objects))&\
-           (DB_judge1.BACKSUB_PHOT!=0.0)&\
+           (DB_bcd.AORKEY.notin(SimlaVar().banned_aorkeys))&\
            ((DB_bcd.CHNLNUM==0)|(DB_bcd.CHNLNUM==2)))
 
 # Each time an alias is made, add it to this list too

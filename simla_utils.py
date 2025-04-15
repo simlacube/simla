@@ -1,3 +1,5 @@
+'''Functions used throughout SIMLA'''
+
 import numpy as np
 import astropy
 from astropy import units as u
@@ -11,12 +13,36 @@ from astropy.io import fits
 import gc
 from astropy.wcs import WCS
 from astropy.nddata.utils import Cutout2D
+import glob
 
 from simla_variables import SimlaVar
-simlapath = SimlaVar().simlapath
+simlavar = SimlaVar()
+simlapath = simlavar.simlapath
+
+def run_inputs_loader(inputfile):
+    '''Interprets the txt file for full run inputs.'''
+    out_dict = {}
+    with open(inputfile) as ipdat:
+        lines = ipdat.readlines()
+        for i in lines:
+            splitter = i.split('=')
+            var, ip = splitter[0].replace(' ',''), splitter[1].replace(' ','')
+            if var == 'run_name': ip = str(ip).replace('\n', '')
+            elif var == 'desired_shard_depth': ip = int(ip)
+            else: ip = float(ip)
+            out_dict[var] = ip
+    return out_dict
 
 def DN_to_MJypsr(image, band):
+    '''
+    Convert a WISE image from native units to MJy/sr.
     
+    image: (arr) a loaded WISE image
+    band: (int) the WISE band number
+
+    returns the converted image
+    
+    '''
     pix_area = ((2.75**2)*(2.3504e-11)) # steradians in a WISE pixel
                                         # WISE pixel size: https://wise2.ipac.caltech.edu/docs/release/allsky/
     
@@ -26,14 +52,16 @@ def DN_to_MJypsr(image, band):
         '3': 1.8326e-6,
         '4': 5.2269e-5,
     }
-    
     conv = conversions[str(band)]
     Jy = image*conv
     MJypsr = ((Jy)/(10**6))/pix_area
-    
     return MJypsr
 
-def fmt_scorners(q_result):  
+def fmt_scorners(q_result):
+    '''
+    From a DB query result that contains shard corners,
+    return a formatted shard corners list.
+    '''
     ra, dec = \
         q_result.filter(like='_R').to_numpy().T, \
         q_result.filter(like='_D').to_numpy().T
@@ -41,11 +69,17 @@ def fmt_scorners(q_result):
     return coords
 
 def fmt_j2spec(q_result):
+    '''
+    From a DB query result that contains binned Judge2 spectra,
+    return a formatted list.
+    '''
     return q_result.filter(like='SPEC').to_numpy()
 
 def make_wise_bg(image_data):
-    # Adapting Cory's code. 
-    # returns the same WISE file but with a simple 2D bg subtracted
+    '''
+    Given a loaded (arr) WISE image, 
+    return the simple local background in the same units.
+    '''
     bg_2d = bg.Background2D(
         image_data, 
         box_size=(2000,2000), 
@@ -55,6 +89,12 @@ def make_wise_bg(image_data):
     return bg_2d
 
 def wise_filename_to_coords(wfile):
+    '''
+    Return the approx. central coords of a WISE image
+    from the info contained in the WISE file name.
+
+    Returns (RA, DEC) in decimal degrees.
+    '''
     # the CRVAL is the center pixel for WISE
     # the approx. coords of the center is in the filename
     coordpart = wfile.split(SimlaVar().wisepath)[-1].split('/')[2]
@@ -66,6 +106,10 @@ def wise_filename_to_coords(wfile):
     return ra, dec
 
 def angular_separation(coords1, coords2):
+    '''
+    Return the angular separation in degrees between a pair of coordinates.
+    give coordsX as (RA, DEC) in decimal degrees.
+    '''
     # coords are (RA, DEC) in decimal degrees
     # returns the separation in degrees
     coords1, coords2 = np.radians(coords1), np.radians(coords2)
@@ -76,6 +120,17 @@ def angular_separation(coords1, coords2):
     return np.degrees(sep)
 
 def zoom_image(zoom_center, zoom_size, imagefile):
+
+    '''
+    Astropy wrapper for zooming-in on FITS images
+
+    zoom_center (list): (RA, DEC) in decimal degrees that will be the center of the new image
+    zoom_size (int): the edge length in pixels of the new cutout image
+    imagefile (str): the path for the FITS image
+
+    returns: [zoomed image, new header, new WCS object]
+
+    '''
     
     image_data = fits.open(imagefile)[0].data
     image_header = fits.open(imagefile)[0].header
@@ -89,15 +144,101 @@ def zoom_image(zoom_center, zoom_size, imagefile):
     
     return image_data, image_header, wcs
 
+def load_superdark_sets(sd_dir):
+    '''
+    Load in a library of superdarks to make tailored superdark interpolation more efficient.
+    See superdarks/make_superdarks.py and superdarks/make_tailored_superdarks.py.
+
+    sd_dir is the directory that the zodibinned superdarks are contained in.
+
+    returns a dictionary like
+
+    {SL_<RAMPTIME>:
+        {'set': array of superdarks for each zodi bin,
+         'depth': array of the number of darks that contribute to each pixel in a superdark,
+         'fiducial_zodis': array of 12um zodi values that are the center of each zodi bin},
+    {SL_<OTHER_RAMPTIME>:...}
+    }
+
+    '''
+    # If a zodi bin is missing, we just interpolate over it
+    superdark_sets = {}
+    for ramp in simlavar.sl_ramptimes:
+        ramp_superdarks = sorted(glob.glob(sd_dir+'superdarks/*SL*'+str(ramp)+'*'))
+        fiducial_zodis = np.asarray(sorted([float(i.split('fidzodi-')[-1].split('_')[0].split('.npy')[0]) for i in ramp_superdarks]))
+        superdark_sets['SL_'+str(ramp)] = {'set': np.asarray([np.load(i)[0] for i in ramp_superdarks]),
+                                           'depth': np.asarray([np.load(i)[1] for i in ramp_superdarks]),
+                                           'fiducial_zodis': fiducial_zodis}
+        
+    for ramp in simlavar.ll_ramptimes:
+        ramp_superdarks = sorted(glob.glob(sd_dir+'superdarks/*LL_*'+str(ramp)+'*'))
+        fiducial_zodis = np.asarray(sorted([float(i.split('fidzodi-')[-1].split('_')[0].split('.npy')[0]) for i in ramp_superdarks]))
+        superdark_sets['LL_'+str(ramp)] = {'set': np.asarray([np.load(i)[0] for i in ramp_superdarks]),
+                                           'depth': np.asarray([np.load(i)[1] for i in ramp_superdarks]),
+                                           'fiducial_zodis': fiducial_zodis}
+    
+    for ramp in simlavar.ll_ramptimes:
+        ramp_superdarks = sorted(glob.glob(sd_dir+'superdarks/*LLa*'+str(ramp)+'*'))
+        fiducial_zodis = np.asarray(sorted([float(i.split('fidzodi-')[-1].split('_')[0].split('.npy')[0]) for i in ramp_superdarks]))
+        superdark_sets['LLa_'+str(ramp)] = {'set': np.asarray([np.load(i)[0] for i in ramp_superdarks]),
+                                            'depth': np.asarray([np.load(i)[1] for i in ramp_superdarks]),
+                                            'fiducial_zodis': fiducial_zodis}
+    return superdark_sets
+
+def interp_superdark(z, superdark_set, return_set=False):
+    '''
+    Interpolator function for tailored superdarks, see superdarks/make_tailored_superdarks.py
+
+    z: (float) the 12um zodi value for an AOR
+    superdark_set: the output of load_superdark_sets()
+    if return_set is False, returns the interpolated "tailored" superdark
+    if return_set is True, returns [interpolated "tailored" superdark, 
+                                    low-zodi superdark used for interpolation,
+                                    high-zodi superdark used for interpolation]
+    
+    '''
+    fiducial_zodis = superdark_set['fiducial_zodis']
+    superdark_set = superdark_set['set']
+
+    # If input zodi is outside of the interpolation range, just use whatever one is closest
+    if z < np.min(fiducial_zodis): z = np.min(fiducial_zodis) + 10**-10
+    if z > np.max(fiducial_zodis): z = np.max(fiducial_zodis) - 10**-10
+
+    z_low = np.max(fiducial_zodis[fiducial_zodis<=z])
+    z_high = np.min(fiducial_zodis[fiducial_zodis>=z])
+
+    z_diff = z_high - z_low
+    low_weight = (z_high - z)/z_diff
+    high_weight = (z - z_low)/z_diff
+    low_im = superdark_set[fiducial_zodis==z_low][0]
+    high_im = superdark_set[fiducial_zodis==z_high][0]
+    out_image = np.average((low_im, high_im), axis=0, weights=(low_weight, high_weight))
+        
+    if not return_set: return out_image
+    elif return_set: return out_image, low_im, high_im
+
 def photometry(region, image_data, image_header):
 
+    '''
+    Get the average pixel value of an image within a set of input sky coordinates.
+    Pixels are clipped exactly.
+
+    region: (arr) a list of [[RA, DEC], [RA, DEC], ...] in decimal degrees for the aperture
+    image_data: (arr) the loaded image data from a FITS file
+    image_header: the loaded header object from a FITS file
+
+    returns the average pixel value in the same units as image_data
+
+    '''
+    
     wcs = WCS(image_header)
     
     image_size = len(image_data)
 
     pixel_region = [astropy.wcs.utils.skycoord_to_pixel(SkyCoord(p[0],p[1],unit='deg'),wcs) for p in region]
     region_polygon = Polygon(pixel_region)
-    
+
+    # Constrain the clipping to a box around the input region
     xs = [i[0] for i in pixel_region]
     ys = [i[1] for i in pixel_region]
     maxx = int(np.ceil(np.max(xs) + 1))
@@ -106,6 +247,9 @@ def photometry(region, image_data, image_header):
     miny = int(np.floor(np.min(ys) - 1))
     
     def count_pixel(x, y):
+
+        # Given input pixel coordinates, return the fraction of the pixel
+        # value and area that contributes to the region
         
         s = 0.5
         x0, y0 = x - s, y - s
@@ -126,7 +270,9 @@ def photometry(region, image_data, image_header):
     coords_to_check = [[x, y]
                       for x in np.arange(minx, maxx) if 0 <= x <= image_size
                       for y in np.arange(miny, maxy) if 0 <= y <= image_size]
-    
+
+    # Loop over the pixels in the region, compute the fraction of the pixel inside,
+    # and add to the overal flux in the region
     for i in coords_to_check:
         try:
             x, y = i[0], i[1]
@@ -142,6 +288,7 @@ def photometry(region, image_data, image_header):
                     flux += pixel_value
         except IndexError: pass # handles regions larger than the image
 
+    # Get the average
     if pixel_count == 0: pixel_count = np.nan
     average_pixel_value = flux/pixel_count
     
@@ -151,6 +298,20 @@ def photometry(region, image_data, image_header):
     return average_pixel_value
 
 def shard_corners(bcd_filename, edgetrim, n_shards):
+
+    '''
+    For an input IRS BCD, get the sky coordinates of spatially-distinct "shards".
+    Sky coordinates take into account the edge trimming (see trim_and_shard_masks.py)
+
+    bcd_filename: (str) the file name for the BCD
+    edgetrim: (float) the % of the width of a suborder that is trimmed
+    n_shards: (int) the number of shards per suborder
+
+    returns a list of three lists, each having a length of n_shards:
+        sky corners, suborders, shard ids
+        i.e. [[shard0 sky corners, shard1 sky corners, ...], [1,1,1,1,2,...], [0,1,2,3,0,1,...]]
+
+    '''
 
     slt_info = { # width and length in degrees.
         'sl1': {
@@ -212,7 +373,8 @@ def shard_corners(bcd_filename, edgetrim, n_shards):
     rectangles = []
     suborders = []
     shard_ids = [i for i in range(n_shards)][::-1]+[j for j in range(n_shards)][::-1]
-    
+
+    # We have to treat different FOVs differently. This handles each case.
     if 'IRS_Short-Lo_1st' in fovname: 
         rectangles.extend(make_rect(slt_info['sl1']['width'], slt_info['sl1']['length'], slt_pos, 'sl1'))
         suborders.extend([1 for i in range(n_shards)])
@@ -270,9 +432,17 @@ def shard_corners(bcd_filename, edgetrim, n_shards):
     return rectangles, suborders, shard_ids
 
 class bcd_spectrum:
+
+    '''Object class for extracting spectra directly from a BCD. Fullslits and shards are supported.'''
     
     def __init__(self, order_limits='strict'):
-        
+
+        '''
+        Initialize the extractor. If extractor = bcd_spectrum() is called, all necessary 
+        calibration files will be pre-loaded and a large number of spectrum extractions and be done very quickly.
+        order_limits are options for trimming the ends of spectral orders.
+        '''
+
         if order_limits == 'strict':
             order_limits = {
                 'sl1': (7.63660, 14.59222),
@@ -460,6 +630,7 @@ class bcd_spectrum:
         self.fullslit_pixel_counts = fullslit_pixel_counts
         
     def conv_select(self, header):
+        # Return the appropriate conversion frame
         if header['CHNLNUM'] < 2:
             return self.conversion_bcds[header['CHNLNUM']]
         elif header['CHNLNUM'] == 2:
@@ -467,6 +638,18 @@ class bcd_spectrum:
             elif header['MJD_OBS'] >= 54403.0: return self.conversion_bcds[3]
 
     def subslit_bcd_spectrum(self, image_data, header, suborder_num, subslit_num):
+
+        '''
+        Extract the spectrum from a shard on a BCD.
+
+        image_data: (arr) the loaded data from the IRS BCD
+        header: the loaded header from the IRS BCD
+        suborder_num: (int) desired suborder 1, 2, or 3
+        subslit_num: (int) shard id to extract
+
+        returns: wavelengths (arr, um), fluxes (arr, MJy/sr)
+
+        '''
         
         chnlnum = header['CHNLNUM']
         suborder_num -= 1
@@ -495,6 +678,17 @@ class bcd_spectrum:
         return wavelengths[final_mask], fluxes[final_mask]
     
     def fullslit_bcd_spectrum(self, image_data, header, suborder_num):
+
+        '''
+        Extract the spectrum from a full slit on a BCD.
+
+        image_data: (arr) the loaded data from the IRS BCD
+        header: the loaded header from the IRS BCD
+        suborder_num: (int) desired suborder 1, 2, or 3
+
+        returns: wavelengths (arr, um), fluxes (arr, MJy/sr)
+
+        '''
         
         chnlnum = header['CHNLNUM']
         suborder_num -= 1

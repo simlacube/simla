@@ -1,3 +1,8 @@
+'''
+Contains functions that are used for validation or testing.
+
+'''
+
 import numpy as np
 import matplotlib.pyplot as plt
 import astropy
@@ -12,10 +17,21 @@ from simla_utils import fmt_scorners, zoom_image, angular_separation
 
 def make_stoplight(aorkey, j1cut, j2cut, chnlnum, save=None):
 
+    '''
+    Makes "stoplight" plots that show shard apertures on a WISE image color-coded to 
+    indicate whether they pass Judge1 or Judge2.
+
+    aorkey (int): the AORKEY to make a stoplight plot for
+    j1cut, j2cut (float): cuts for Judge1 and Judge2, respectively
+    chnlnum: 0 for SL, 2 for LL
+    save: if str, the image will be saved as the specified filename
+
+    '''
+
     wisepath = SimlaVar().wisepath
 
     rects = query(simladbX.select(*scorners, DB_judge1.BACKSUB_PHOT, DB_judge2.F_MEDIAN, DB_bcdwise.WISE_FILE)\
-                 .where((DB_bcd.AORKEY==aorkey)&(DB_bcd.CHNLNUM==chnlnum)))
+                 .where((DB_bcd.AORKEY==aorkey)&(DB_bcd.CHNLNUM==chnlnum)&(DB_judge1.BACKSUB_PHOT!=0.0)))
     corners, j1s, j2s, wisefile = \
         fmt_scorners(rects), rects['BACKSUB_PHOT'].to_numpy(), rects['F_MEDIAN'].to_numpy(), rects['WISE_FILE'][0]
 
@@ -65,6 +81,14 @@ def make_stoplight(aorkey, j1cut, j2cut, chnlnum, save=None):
     plt.show()
 
 def full_slit_position(bcd):
+
+    '''
+    Given the filename of an IRS BCD, get the sky coordinates of each slit.
+
+    Returns a list where the elements correspond to each slit in the BCD (i.e. [SL1, SL2])
+    Each element is an object, the "corners" attribute is the list of sky coords for each corner.
+
+    '''
 
     slt_info = { # width and length in degrees.
         'sl1': {
@@ -130,6 +154,7 @@ def full_slit_position(bcd):
     slt_pos = [bcd_header['RA_SLT'], bcd_header['DEC_SLT']]
     xslt_pos = None 
 
+    # We have to treat the differen FOVs differently
     rectangles = []
     if 'IRS_Short-Lo_1st' in fovname: 
         rectangles.append(make_rect(slt_info['sl1']['width'], slt_info['sl1']['length'], slt_pos, 'sl1'))

@@ -1,3 +1,16 @@
+'''
+Match each IRS observation to a WISE tile, and upload to the 
+bcd_wise_map table in the SIMLA database.
+
+Strategy: use the sky info in WISE file names to find the WISE tile that has 
+the closest center to a given IRS obs. Some IRS obs land on multiple WISE
+tiles, the one with the closest center is chosen.
+
+Make sure wisepath is set in simla_variables.py
+Prerequisite code: bcd_metadata.py.
+
+'''
+
 import numpy as np
 from astropy.io import fits
 import glob

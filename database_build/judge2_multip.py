@@ -1,3 +1,19 @@
+'''
+Computes "Judge 2" photometry, and upload to the judge2 table in the SIMLA database.
+
+Judge 2 photometry is a measure of the MIR sky brightness extracted from shard apertires on IRS BCDs. 
+Specifically, it is the median spectral value in MJy/sr within the wavelength range 
+of each BCD suborder, after subtracting both the zodi and the superdark. This is 
+used for testing whether shards qualify as backgrounds. See make_zodi_images.py, 
+make_superdarks.py, and make_tailored_superdarks.py.
+
+Make sure irspath is set in simla_variables.py
+Prerequisite code: bcd_metadata.py, make_tailored_superdarks.py and prereqs therein.
+
+This is the version with multiprocessing enabled. Specify the cores to use in simla_variables.py.
+
+'''
+
 import numpy as np
 from astropy.io import fits
 from tqdm import tqdm
@@ -27,9 +43,6 @@ def get_specdata_and_enter(i):
     # Load in the zodi image and the superdark
     ordername = ['SL', 'SH', 'LL', 'LH'][chnl]
     zodiim = np.load(zodi_im_path+str(aor)+'_'+ordername+'.npy')
-    if chnl == 2 and mjd >= ll_gain_change_mjd:
-        ordername = 'LLa'
-    else: ordername = ordername
     superdark = np.load(tsd_dir+str(aor)+'_'+ordername+'.npy')
 
     # Get the BCD in zodi and superdark - free space
@@ -76,11 +89,6 @@ def get_specdata_and_enter(i):
             """
         cursor.execute(ADD2)
         connection.commit()
-
-    if chnl == 0:
-        bl_sl1, bl_sl2 = bl1, bl2
-    elif chnl == 2:
-        bl_ll1, bl_ll2 = bl1, bl2
     
 # Bin the extracted spectra by wavelength
 def bin_spectrum(lam, spec, nbins):
@@ -120,22 +128,30 @@ dceids, aors, fnames, chnls, mjds = \
 extractor = bcd_spectrum()
 
 # Save bin wavelengths for later
-bl_sl1, bl_sl2, bl_ll1, bl_ll2 = \
-    None, None, None, None
-
-# Loop through BCDs, subtract the zodi and superdark, and upload to database
-i_s = range(len(dceids))
-if __name__ == '__main__':
-    with Pool(processes=8) as pool: 
-        for _ in tqdm(pool.imap_unordered(get_specdata_and_enter, i_s), \
-                           total=len(i_s)):
-            pass
-
+samp_sl, samp_ll = \
+    fits.open(fnames[np.where(chnls==0)][0])[0], \
+    fits.open(fnames[np.where(chnls==2)][0])[0]
+sl_l1, sl_f1 = extractor.subslit_bcd_spectrum(samp_sl.data, samp_sl.header, 1, 0)
+sl_l2, sl_f2 = extractor.subslit_bcd_spectrum(samp_sl.data, samp_sl.header, 2, 0)
+ll_l1, ll_f1 = extractor.subslit_bcd_spectrum(samp_ll.data, samp_ll.header, 1, 0)
+ll_l2, ll_f2 = extractor.subslit_bcd_spectrum(samp_ll.data, samp_ll.header, 2, 0)
+bl_sl1, _ = bin_spectrum(sl_l1, sl_f1, nbins)
+bl_sl2, _ = bin_spectrum(sl_l2, sl_f2, nbins)
+bl_ll1, _ = bin_spectrum(ll_l1, ll_f1, nbins)
+bl_ll2, _ = bin_spectrum(ll_l2, ll_f2, nbins)
 storagepath = SimlaVar().simlapath+'storage/'
 np.save(storagepath+'sl1_binlam', bl_sl1)
 np.save(storagepath+'sl2_binlam', bl_sl2)
 np.save(storagepath+'ll1_binlam', bl_ll1)
 np.save(storagepath+'ll2_binlam', bl_ll2)
+
+# Loop through BCDs, subtract the zodi and superdark, and upload to database
+i_s = range(len(dceids))
+if __name__ == '__main__':
+    with Pool(processes=SimlaVar().processors) as pool: 
+        for _ in tqdm(pool.imap_unordered(get_specdata_and_enter, i_s), \
+                           total=len(i_s)):
+            pass
 
 
 

@@ -1,0 +1,9 @@
+run_name = test
+j1_cut = 0.1
+j2_cut = 2
+deltat = 5
+max_deltat = 10
+zodi_cut = 100
+ism_cut = 0.5
+sigma_cut = 1.5
+desired_shard_depth = 100

@@ -1,3 +1,16 @@
+'''
+Computes the sky coordinates for each shard, and upload to the shard_positions table in the SIMLA database.
+
+Shard positions are expressed as four sky corders denoted (C#_R, C#_D) as (RA, DEC) for a corner.
+Indices (SHARD) are 0-n_shards increasing from the left to the right on a BCD.
+
+Sky coordinates are computed using the shard_corners function in simla_utils.py.
+
+Make sure irspath is set in simla_variables.py
+Prerequisite code: bcd_metadata.py, trim_and_shard_masks.py.
+
+'''
+
 import numpy as np
 from astropy.io import fits
 from tqdm import tqdm
@@ -29,6 +42,8 @@ for i in tqdm(range(len(all_bcd_filenames))):
     bcdfile = irspath+all_bcd_filenames[i]
     chnlnum = all_bcd_chnlnums[i]
     dceid = all_bcd_dceids[i]
+
+    # Compute the sky coordinates
     rectangles, suborders, shard_ids = \
             shard_corners(bcdfile, edgetrim_lib[chnlnum], nshard_lib[chnlnum])
 

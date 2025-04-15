@@ -1,3 +1,18 @@
+'''
+Create the trimmed masks for IRS BCD suborder, and the trimmed masks for each shard.
+
+"Trimming" refers to the pixels cut from the edges (spatial direction) of suborders. A few pixels
+on the edges of the spectral direction are also trimmed for consistent suborder widths.
+"Shards" are spatially-separated subdivisions within suborders on the BCD and on sky. They
+are indexed from 0-n_shards from left to right on the BCD.
+
+Outputs saved in simlapath/calib.
+
+Make sure edgetrim values and n_shards are set in simla_variables.py
+Prerequisite code: none.
+
+'''
+
 import numpy as np
 from astropy.io import fits
 import os
@@ -5,6 +20,15 @@ import os
 from simla_variables import SimlaVar
 
 def make_trim_mask(channel_mask, edgetrim):
+
+    '''
+    channel_mask: loaded untrimmed fullslit mask array
+    edgetrim: % of the width to trim from both sides
+
+    returns to new trimmed mask
+
+    '''
+    
     trimmed_mask = []
     for i in range(128):
         row = channel_mask[i]
@@ -17,6 +41,15 @@ def make_trim_mask(channel_mask, edgetrim):
     return trimmed_mask
 
 def make_shard_mask(channel_mask, n_shards):
+
+    '''
+    channel_mask: loaded trimmed fullslit mask array
+    n_shards: integer number of shards to divide the suborder into
+
+    returns an array containing the mask for each shard
+
+    '''
+    
     shardmasks = [[] for shard in range(n_shards)]
     for i in range(128):
         row = channel_mask[i]
@@ -34,8 +67,9 @@ sl_edgetrim = SimlaVar().sl_edgetrim
 ll_edgetrim = SimlaVar().ll_edgetrim
 sl_n_shards = SimlaVar().sl_n_shards
 ll_n_shards = SimlaVar().ll_n_shards
-
 simlapath = SimlaVar().simlapath
+
+# Load in the original suborder masks
 mask_library = [
     [None,
      fits.getdata(simlapath+'calib/masks/irs_mask_SL1.fits'),
@@ -58,6 +92,7 @@ mask_library[2][1][126] = np.zeros(128)
 mask_library[2][1][127] = np.zeros(128)
 mask_library[2][2][81] = np.zeros(128)
 
+# Make the fullslit trimmed shard masks
 sl1_trim, sl2_trim, sl3_trim, ll1_trim, ll2_trim, ll3_trim = \
     make_trim_mask(mask_library[0][1], sl_edgetrim), \
     make_trim_mask(mask_library[0][2], sl_edgetrim), \
@@ -66,6 +101,7 @@ sl1_trim, sl2_trim, sl3_trim, ll1_trim, ll2_trim, ll3_trim = \
     make_trim_mask(mask_library[2][2], ll_edgetrim), \
     make_trim_mask(mask_library[2][3], ll_edgetrim)
 
+# Make the masks for each shard
 sl1_shardm, sl2_shardm, sl3_shardm, ll1_shardm, ll2_shardm, ll3_shardm = \
     make_shard_mask(sl1_trim, sl_n_shards), \
     make_shard_mask(sl2_trim, sl_n_shards), \
@@ -74,11 +110,13 @@ sl1_shardm, sl2_shardm, sl3_shardm, ll1_shardm, ll2_shardm, ll3_shardm = \
     make_shard_mask(ll2_trim, ll_n_shards), \
     make_shard_mask(ll3_trim, ll_n_shards)
 
+# Set up directories
 if not os.path.exists(simlapath+'calib/trimmed_fullslit_masks/'):
     os.mkdir(simlapath+'calib/trimmed_fullslit_masks/')
 if not os.path.exists(simlapath+'calib/shard_masks/'):
     os.mkdir(simlapath+'calib/shard_masks/')
 
+# Save everything
 np.save(simlapath+'calib/trimmed_fullslit_masks/SL1.npy', sl1_trim)
 np.save(simlapath+'calib/trimmed_fullslit_masks/SL2.npy', sl2_trim)
 np.save(simlapath+'calib/trimmed_fullslit_masks/SL3.npy', sl3_trim)

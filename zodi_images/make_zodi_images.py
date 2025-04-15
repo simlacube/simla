@@ -1,3 +1,18 @@
+'''
+Make IRS BCD-like images that contain the spectrum of pre-computed model zodi
+for each AOR. This spectrum is relative to the CVZ spectrum (CVZ-subtracted).
+See cvz_campaigns.py
+
+The saved images are in units of e-/s, just like a BCD.
+
+Requires that there is already a directory that contains the zodi spectra for 
+each AOR as well as the associated wavelengths.
+
+Make sure that the zodipath is set in simla_variables.py
+Prerequisite code: bcd_metadata.py, cvz_campaigns.py.
+
+'''
+
 import numpy as np
 from astropy.io import fits
 from tqdm import tqdm
@@ -12,7 +27,20 @@ simlapath = SimlaVar().simlapath
 storagepath = simlapath+'storage/'
 
 def imprint_spectrum(in_wav, in_spec, conv, cc, wavelengths):
-    # Turn an input spectrum into a BCD-like image
+
+    '''
+    Takes an input spectrum and "imprints" it onto a BCD-like image.
+
+    in_wav: array of wavelengths in um
+    in_spec: array of zodi fnus in MJy/sr
+    conv: the corresponding conversion frame
+    cc: the corresponding "contribution cube" that gives the pixel 
+        contributions for each WAVSAMP.
+    wavelengths: array of the wavelengths associated with the WAVSAMP (um)
+
+    returns the imprinted image in e-/s
+
+    '''
     
     # interpolate input spectrum onto wavsamp wavelengths
     s = interpolate.interp1d(in_wav, in_spec, bounds_error=False, fill_value='extrapolate')
@@ -37,6 +65,7 @@ sl_cc, ll_cc = \
     np.load(simlapath+'calib/contribution_cubes/cc_b0v6.npy'), \
     np.load(simlapath+'calib/contribution_cubes/cc_b2v10.npy'), \
 
+# This blocl interprets the WAVSAMP files and gets the wavelengths
 def prep_wavsamp(f):
     wdat = open(f, 'r')
     l = wdat.readlines()
