@@ -19,6 +19,9 @@ from astropy.io import fits
 from tqdm import tqdm
 from mysql.connector import connect
 
+import warnings
+warnings.filterwarnings('ignore')
+
 from simla_variables import SimlaVar
 from simladb import query, DB_bcd, DB_bcdwise, DB_shardpos, setup_judge1, scorners
 from simla_utils import make_wise_bg, DN_to_MJypsr, photometry, fmt_scorners
