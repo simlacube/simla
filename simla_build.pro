@@ -75,8 +75,9 @@ pro simla_build, files, module, outfile, ORDER=ord, BACKGROUND_FRAME = bgf, $
                ' -> Generating Global Auto-bad-pixels with params: ', $
                sigma_thresh,minfrac)
      
-     cube->AutoBadPixels, MAXVAR=sigma_thresh, MINFRAC=minfrac,$
-                                 /WITH_BACKGROUND, USE_UNC=0
+     cube->AutoBadPixels, MAXVAR=sigma_thresh, MINFRAC=minfrac, /WITH_BACKGROUND
+     ;; cube->AutoBadPixels, MAXVAR=sigma_thresh, MINFRAC=minfrac, /WITH_BACKGROUND, /RECORD_BAD_PIX
+                                 
      ;; Re-build the cube
      print,FORMAT='(%" -> Re-Building %s Cube...",$)', name
      t0=systime(1)
