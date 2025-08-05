@@ -11,7 +11,6 @@ from astropy.wcs import WCS
 import astropy
 from astropy.io import fits
 import gc
-from astropy.wcs import WCS
 from astropy.nddata.utils import Cutout2D
 import glob
 
@@ -28,7 +27,7 @@ def run_inputs_loader(inputfile):
             splitter = i.split('=')
             var, ip = splitter[0].replace(' ',''), splitter[1].replace(' ','')
             if var == 'run_name': ip = str(ip).replace('\n', '')
-            elif var == 'desired_shard_depth': ip = int(ip)
+            elif var == 'min_shard_depth': ip = int(ip)
             else: ip = float(ip)
             out_dict[var] = ip
     return out_dict
@@ -43,7 +42,7 @@ def DN_to_MJypsr(image, band):
     returns the converted image
     
     '''
-    pix_area = ((2.75**2)*(2.3504e-11)) # steradians in a WISE pixel
+    pix_area = ((1.375**2)*(2.3504e-11)) # steradians in a WISE pixel
                                         # WISE pixel size: https://wise2.ipac.caltech.edu/docs/release/allsky/
     
     conversions = { # see Table 1 from https://wise2.ipac.caltech.edu/docs/release/allsky/expsup/sec2_3f.html
