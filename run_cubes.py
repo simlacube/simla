@@ -117,12 +117,10 @@ def run_cubes_in_progid(progid):
                             j1_cut=inputs['j1_cut'], \
                             j2_cut=inputs['j2_cut'], \
                             deltat=inputs['deltat'], \
-                            max_deltat=inputs['max_deltat'], \
                             zodi_cut=inputs['zodi_cut'], \
                             ism_cut=inputs['ism_cut'], \
                             sigma_cut=inputs['sigma_cut'], \
-                            desired_shard_depth=inputs['desired_shard_depth'], \
-                            use_io_correct=False
+                            min_shard_depth=inputs['min_shard_depth'], \
                         )
                     except Exception as e:
                         log_queue.put(str(datetime.datetime.now())+': background failed (AORKEY='+str(aorkey)+\
@@ -149,12 +147,25 @@ def run_cubes_in_progid(progid):
                                           ')! Error: '+str(e))
                             continue
 
+                        # If SL, run sl_io_correct and save an alternate cube
+                        if chnlnum == 0:
+                            try:
+                                cube.run_sl_io_correct()
+                                log_queue.put(str(datetime.datetime.now())+': successfully ran IO correct for '+\
+                                              str(aorkey)+', '+fixed_objname+', '+mod+str(suborder)+' in '+\
+                                              str(build_time)+' sec')
+                            except Exception as e:
+                                log_queue.put(str(datetime.datetime.now())+': error running IO correct for AORKEY='+\
+                                              str(aorkey)+'. Error: '+str(e))
+                                continue
+
                         try:
                             # Saving additional information
-                            cube.save_cpj_params(delete_cpj=True) # .cpj files take a lot of storage!
+                            cube.save_cpj_params(delete_cpj=False) # .cpj files take a lot of storage!
                             cube.save_background()
                             cube.save_background_depth_map()
                             cube.save_shardlist()
+                            cube.save_stats()
                         except Exception as e:
                             log_queue.put(str(datetime.datetime.now())+': error saving non-cube products for AORKEY='+\
                                           str(aorkey)+'. Error: '+str(e))
