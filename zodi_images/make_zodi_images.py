@@ -16,8 +16,8 @@ Prerequisite code: bcd_metadata.py, cvz_campaigns.py.
 import numpy as np
 from astropy.io import fits
 from tqdm import tqdm
-from scipy import interpolate
 import os
+from scipy import interpolate
 
 from simla_variables import SimlaVar
 from simladb import query, DB_bcd
