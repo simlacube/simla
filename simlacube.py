@@ -379,6 +379,21 @@ class SimlaCube:
         os.system('mv '+savename.replace('.fits', '_unc.cpj')+' '+fixname_cpj)
         self.cpjname = fixname_cpj
 
+        # Remove the distortion keywords from the header
+        header = fits.getheader(savename)
+        dist_coeffs = [card.keyword for card in header.cards if \
+                       card.comment == 'distortion coefficient']
+        with fits.open(savename) as hdul:
+            for key in dist_coeffs:
+                del hdul[0].header[key]
+            del hdul[0].header['A_ORDER']
+            del hdul[0].header['B_ORDER']
+            del hdul[0].header['AP_ORDER']
+            del hdul[0].header['BP_ORDER']
+            del hdul[0].header['A_DMAX']
+            del hdul[0].header['B_DMAX']
+            hdul.writeto(savename, overwrite=True)
+
     def run_sl_io_correct(self, iocorr_savename=None):
 
         '''
