@@ -334,15 +334,16 @@ class SimlaCube:
             self.bg_n_otheraor = np.nan
             self.bg_mean_judge_agreement = np.nan
 
-    def build_cube(self, suborder, savename, autobp=True):
+    def build_cube(self, suborder, savename, autobp=True, no_data=True):
 
         '''
         Wrapper for lights-out IDL code for CUBISM.
         Requires an initialized cube with a background already built.
 
-        suborder: (int) 1, 2, or 3 for the suborder to build
+        suborder: (int) 1, 2, or 3 for the suborder to build.
         savename: (str) the file to save the cube to. Requires ".fits" at the end.
         autobp: (bool) use CUBISM autobadpix?
+        no_data: (bool) if False, the .cpj file with be saved with BCD data.
 
         '''
 
@@ -362,15 +363,12 @@ class SimlaCube:
         IDL.background = self.background
         IDL.bgunc = self.background_unc
 
-        if autobp:
-            IDL.run('simla_build, files, module, outfile, \
-                        BACKGROUND_FRAME=background, BACKGROUND_UNC=bgunc, \
-                        ORDER=suborder, /AUTO_BADPIX')
-        
-        else:
-            IDL.run('simla_build, files, module, outfile, \
-                        BACKGROUND_FRAME=background, BACKGROUND_UNC=bgunc, \
-                        ORDER=suborder') 
+        in_autobp = 1 if autobp==True else 0
+        in_nodata = 1 if no_data==True else 0
+
+        IDL.run(f"""simla_build, files, module, outfile, \
+                    BACKGROUND_FRAME=background, BACKGROUND_UNC=bgunc, \
+                    ORDER=suborder, AUTO_BADPIX={in_autobp}, NO_DATA={in_nodata}""")
         
         os.chdir(starting_directory)
 
