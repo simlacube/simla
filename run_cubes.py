@@ -25,8 +25,6 @@ from simla_variables import SimlaVar
 from simla_utils import run_inputs_loader
 from simlacube import SimlaCube
 
-# TODO: csv of flags and stats, 1 row = 1 cube
-
 run_start = time.time()
 
 simlapath = SimlaVar().simlapath
@@ -59,6 +57,15 @@ if not os.path.exists(runpath+run_name):
 
 # Copy the run inputs into the new directory
 os.system('cp '+simlapath+'run_inputs.txt '+runpath+run_name+'/used_run_inputs.txt')
+
+# Check if there is supposed to be a quality assurance sample
+# If so, prepare a list of unique tags for the sample
+if SimlaVar().sample_file is not None:
+    import pandas as pd
+    sample = pd.read_csv(SimlaVar().sample_file)
+    sample = [str(sample['AORKEY'][i])+'_'+sample['SUBORDER'][i] for i in range(len(sample['AORKEY']))]
+else:
+    sample = []
 
 def run_cubes_in_progid(progid):
 
@@ -128,6 +135,11 @@ def run_cubes_in_progid(progid):
                         continue
 
                     for suborder in [1, 2, 3]:
+
+                        # Set up special treatment for quality assurance cubes
+                        in_sample = True if str(aorkey)+'_'+mod+str(suborder) in sample else False
+                        no_data = False if in_sample else True
+                        delete_cpj = False if in_sample else True
                         
                         try:
                             start = time.time()
@@ -136,7 +148,7 @@ def run_cubes_in_progid(progid):
                             savename = aorpath+str(aorkey)+'_'+fixed_objname+'_'+mod+str(suborder)+'.fits'
 
                             # Now we actually make the cubes
-                            cube.build_cube(suborder=suborder, savename=savename)
+                            cube.build_cube(suborder=suborder, savename=savename, no_data=no_data)
                             end = time.time()
                             build_time = round((end-start), 1)
                             log_queue.put(str(datetime.datetime.now())+': successfully built '+str(aorkey)+\
@@ -161,7 +173,7 @@ def run_cubes_in_progid(progid):
 
                         try:
                             # Saving additional information
-                            cube.save_cpj_params(delete_cpj=False) # .cpj files take a lot of storage!
+                            cube.save_cpj_params(delete_cpj=delete_cpj) # .cpj files take a lot of storage!
                             cube.save_background()
                             cube.save_background_depth_map()
                             cube.save_shardlist()

@@ -43,4 +43,11 @@ class SimlaVar:
         # Computation
         self.processors = 13
 
+        # Quality assurance
+        self.sample_file = None # /path/to/sample.csv or None
+
+
+
+        
+
         
