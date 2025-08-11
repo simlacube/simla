@@ -9,7 +9,7 @@ class SimlaVar:
 
         # Paths
         self.simlapath = '' # /path/to/directory/with/ simlacube.py
-        self.irspath = '' # /path/to/directory/with/ irsstare
+        self.irspath = ''  # /path/to/directory/with/ irsstare
         self.wisepath = '' # /path/to/wise/images/
         self.zodipath = '' # /path/to/zodi/spectra/
         self.runpath = '' # /path/to/store/full/runs/
@@ -25,9 +25,10 @@ class SimlaVar:
         # Specifications for superdark creation
         self.n_zodi_bins = 4
         # These are *not* for cubes, but cuts for making superdarks
-        self.judge1_sd_cut = (-0.1, 0.1) # MJy/sr
+        self.judge1_sd_cut = (-0.3, 0.3) # MJy/sr
         self.ism_sd_cut = 1 # MJy/sr
-        self.sd_trim_sigma = 1.5
+        self.sd_trim_sigma = 1
+        self.sd_median_pixval_cut = 20
 
         # Use these to exclude certain BCDs
         self.banned_objtypes = ['TargetMovingSingle', 'TargetMovingCluster', 'TargetMulti']
@@ -40,6 +41,13 @@ class SimlaVar:
         self.ll_gain_change_mjd = 54403.0
 
         # Computation
-        self.processors = 8
+        self.processors = 13
+
+        # Quality assurance
+        self.sample_file = None # /path/to/sample.csv or None
+
+
+
+        
 
         

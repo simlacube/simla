@@ -25,8 +25,6 @@ from simla_variables import SimlaVar
 from simla_utils import run_inputs_loader
 from simlacube import SimlaCube
 
-# TODO: csv of flags and stats, 1 row = 1 cube
-
 run_start = time.time()
 
 simlapath = SimlaVar().simlapath
@@ -59,6 +57,15 @@ if not os.path.exists(runpath+run_name):
 
 # Copy the run inputs into the new directory
 os.system('cp '+simlapath+'run_inputs.txt '+runpath+run_name+'/used_run_inputs.txt')
+
+# Check if there is supposed to be a quality assurance sample
+# If so, prepare a list of unique tags for the sample
+if SimlaVar().sample_file is not None:
+    import pandas as pd
+    sample = pd.read_csv(SimlaVar().sample_file)
+    sample = [str(sample['AORKEY'][i])+'_'+sample['SUBORDER'][i] for i in range(len(sample['AORKEY']))]
+else:
+    sample = []
 
 def run_cubes_in_progid(progid):
 
@@ -117,12 +124,10 @@ def run_cubes_in_progid(progid):
                             j1_cut=inputs['j1_cut'], \
                             j2_cut=inputs['j2_cut'], \
                             deltat=inputs['deltat'], \
-                            max_deltat=inputs['max_deltat'], \
                             zodi_cut=inputs['zodi_cut'], \
                             ism_cut=inputs['ism_cut'], \
                             sigma_cut=inputs['sigma_cut'], \
-                            desired_shard_depth=inputs['desired_shard_depth'], \
-                            use_io_correct=False
+                            min_shard_depth=inputs['min_shard_depth'], \
                         )
                     except Exception as e:
                         log_queue.put(str(datetime.datetime.now())+': background failed (AORKEY='+str(aorkey)+\
@@ -130,6 +135,11 @@ def run_cubes_in_progid(progid):
                         continue
 
                     for suborder in [1, 2, 3]:
+
+                        # Set up special treatment for quality assurance cubes
+                        in_sample = True if str(aorkey)+'_'+mod+str(suborder) in sample else False
+                        no_data = False if in_sample else True
+                        delete_cpj = False if in_sample else True
                         
                         try:
                             start = time.time()
@@ -138,7 +148,7 @@ def run_cubes_in_progid(progid):
                             savename = aorpath+str(aorkey)+'_'+fixed_objname+'_'+mod+str(suborder)+'.fits'
 
                             # Now we actually make the cubes
-                            cube.build_cube(suborder=suborder, savename=savename)
+                            cube.build_cube(suborder=suborder, savename=savename, no_data=no_data)
                             end = time.time()
                             build_time = round((end-start), 1)
                             log_queue.put(str(datetime.datetime.now())+': successfully built '+str(aorkey)+\
@@ -149,12 +159,25 @@ def run_cubes_in_progid(progid):
                                           ')! Error: '+str(e))
                             continue
 
+                        # If SL, run sl_io_correct and save an alternate cube
+                        if chnlnum == 0:
+                            try:
+                                cube.run_sl_io_correct()
+                                log_queue.put(str(datetime.datetime.now())+': successfully ran IO correct for '+\
+                                              str(aorkey)+', '+fixed_objname+', '+mod+str(suborder)+' in '+\
+                                              str(build_time)+' sec')
+                            except Exception as e:
+                                log_queue.put(str(datetime.datetime.now())+': error running IO correct for AORKEY='+\
+                                              str(aorkey)+'. Error: '+str(e))
+                                continue
+
                         try:
                             # Saving additional information
-                            cube.save_cpj_params(delete_cpj=True) # .cpj files take a lot of storage!
+                            cube.save_cpj_params(delete_cpj=delete_cpj) # .cpj files take a lot of storage!
                             cube.save_background()
                             cube.save_background_depth_map()
                             cube.save_shardlist()
+                            cube.save_stats()
                         except Exception as e:
                             log_queue.put(str(datetime.datetime.now())+': error saving non-cube products for AORKEY='+\
                                           str(aorkey)+'. Error: '+str(e))

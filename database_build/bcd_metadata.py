@@ -36,17 +36,20 @@ for i in tqdm(all_bcds):
     else:
         stepspar, stepsper = 0, 0
 
+    # One target has a ' in the object name, needs to be removed
+    objname = head['OBJECT'].replace("'","")
+
     ADD = f"""
         INSERT INTO bcd_metadata (
         DCEID, FILE_NAME, AORKEY, CHNLNUM, CAMPAIGN, PROGID, OBJECT,
         OBJTYPE, RA_FOV, DEC_FOV, PA_FOV, MJD_OBS, RAMPTIME, SAMPTIME,
         AOT_TYPE, FOVNAME, FOVID, STEPSPAR, STEPSPER) 
-        VALUES ({head['DCEID']}, "{FILE_NAME}", {head['AORKEY']}, 
-        {head['CHNLNUM']}, "{head['CAMPAIGN']}", {head['PROGID']}, 
-        "{head['OBJECT']}", "{head['OBJTYPE']}", {head['RA_FOV']}, 
+        VALUES ({head['DCEID']}, '{FILE_NAME}', {head['AORKEY']}, 
+        {head['CHNLNUM']}, '{head['CAMPAIGN']}', {head['PROGID']}, 
+        '{objname}', '{head['OBJTYPE']}', {head['RA_FOV']}, 
         {head['DEC_FOV']}, {head['PA_FOV']}, {head['MJD_OBS']}, 
-        {head['RAMPTIME']}, {head['SAMPTIME']}, "{head['AOT_TYPE']}", 
-        "{head['FOVNAME']}", {head['FOVID']}, {stepspar}, 
+        {head['RAMPTIME']}, {head['SAMPTIME']}, '{head['AOT_TYPE']}', 
+        '{head['FOVNAME']}', {head['FOVID']}, {stepspar}, 
         {stepsper});
         """
     

@@ -7,8 +7,8 @@
 ;;  and/or for individual records (a HASH with key RECID, or 'global',
 ;;  elements a list of (1D) pixel values)
 
-pro simla_build, files, module, outfile, ORDER=ord, BACKGROUND_FRAME = bgf, $
-                 BACKGROUND_UNC = bgu, BADPIX=bp, AUTO_BADPIX = abp
+pro simla_build, files, module, outfile, ORDER = ord, BACKGROUND_FRAME = bgf, $
+                 BACKGROUND_UNC = bgu, BADPIX = bp, AUTO_BADPIX = abp, NO_DATA = nd
   
   if n_elements(bp) eq 0 then bp = []
   
@@ -75,8 +75,9 @@ pro simla_build, files, module, outfile, ORDER=ord, BACKGROUND_FRAME = bgf, $
                ' -> Generating Global Auto-bad-pixels with params: ', $
                sigma_thresh,minfrac)
      
-     cube->AutoBadPixels, MAXVAR=sigma_thresh, MINFRAC=minfrac,$
-                                 /WITH_BACKGROUND, USE_UNC=0
+     cube->AutoBadPixels, MAXVAR=sigma_thresh, MINFRAC=minfrac, /WITH_BACKGROUND
+     ;; cube->AutoBadPixels, MAXVAR=sigma_thresh, MINFRAC=minfrac, /WITH_BACKGROUND, /RECORD_BAD_PIX
+                                 
      ;; Re-build the cube
      print,FORMAT='(%" -> Re-Building %s Cube...",$)', name
      t0=systime(1)
@@ -88,10 +89,9 @@ pro simla_build, files, module, outfile, ORDER=ord, BACKGROUND_FRAME = bgf, $
            
   endif   
   
-  outfile = REPSTR(outfile, "_unc", "")
   cube->SaveCube, outfile
   cubename = REPSTR(outfile, "fits", "cpj")
-  cube->Save, cubename
+  cube->Save, cubename, NO_DATA=nd
   
   return 
 end
