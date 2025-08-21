@@ -18,6 +18,9 @@ import datetime
 import time
 import os
 import gc
+import string
+import copy
+from astropy.io import fits
 from multiprocessing import Pool, Process, Queue
 
 from simladb import query, DB_bcd
@@ -133,55 +136,79 @@ def run_cubes_in_progid(progid):
                         log_queue.put(str(datetime.datetime.now())+': background failed (AORKEY='+str(aorkey)+\
                                       ')! Error: '+str(e))
                         continue
+                    
+                    # If the map has multiple targets, need to make multiple cubes
+                    if cube.OBJTYPE == 'TargetMulti' or cube.OBJTYPE == 'TargetFixedCluster':
+                        sample_header = fits.getheader(cube.bcd_file_names[0])
+                        n_fovid = len(np.unique([fits.getheader(i)['FOVID'] for i in cube.bcd_file_names]))
+                        nbcd_per_map = sample_header['STEPSPAR'] * sample_header['STEPSPER'] * n_fovid 
+                        n_unique_bcds = len(cube.bcd_file_names) / sample_header['NCYCLES']
+                        n_maps = int(n_unique_bcds / nbcd_per_map)
+                        nbcd_per_map = nbcd_per_map * sample_header['NCYCLES']
+                        sorted_bcds = sorted(cube.bcd_file_names)
+                        letters = list(string.ascii_uppercase)
+                        cubelist, savenames = [], []
+                        for mapnum in range(n_maps):
+                            bcds_in_map = sorted_bcds[mapnum*nbcd_per_map: (mapnum*nbcd_per_map)+nbcd_per_map]
+                            subcube = copy.deepcopy(cube)
+                            subcube.bcd_file_names = np.asarray(bcds_in_map)
+                            savename = str(aorkey)+letters[mapnum]+'_'+fixed_objname+'_'+mod
+                            cubelist.append(subcube)
+                            savenames.append(savename)
+                    else: 
+                        cubelist = [cube]
+                        savenames = [str(aorkey)+'_'+fixed_objname+'_'+mod]
 
-                    for suborder in [1, 2, 3]:
+                    for cubeindex in range(len(cubelist)):
+                        cube = cubelist[cubeindex]
+    
+                        for suborder in [1, 2, 3]:
 
-                        # Set up special treatment for quality assurance cubes
-                        in_sample = True if str(aorkey)+'_'+mod+str(suborder) in sample else False
-                        no_data = False if in_sample else True
-                        delete_cpj = False if in_sample else True
-                        
-                        try:
-                            start = time.time()
-                            log_queue.put(str(datetime.datetime.now())+': building cube '+str(aorkey)+\
-                                      ', '+fixed_objname+', '+mod+str(suborder)+'...')
-                            savename = aorpath+str(aorkey)+'_'+fixed_objname+'_'+mod+str(suborder)+'.fits'
-
-                            # Now we actually make the cubes
-                            cube.build_cube(suborder=suborder, savename=savename, no_data=no_data)
-                            end = time.time()
-                            build_time = round((end-start), 1)
-                            log_queue.put(str(datetime.datetime.now())+': successfully built '+str(aorkey)+\
-                                      ', '+fixed_objname+', '+mod+str(suborder)+' in '+\
-                                         str(build_time)+' sec')
-                        except Exception as e:
-                            log_queue.put(str(datetime.datetime.now())+': cube build failed (AORKEY='+str(aorkey)+\
-                                          ')! Error: '+str(e))
-                            continue
-
-                        # If SL, run sl_io_correct and save an alternate cube
-                        if chnlnum == 0:
+                            savename = savenames[cubeindex]+str(suborder)+'.fits'
+    
+                            # Set up special treatment for quality assurance cubes
+                            in_sample = True if str(aorkey)+'_'+mod+str(suborder) in sample else False
+                            no_data = False if in_sample else True
+                            delete_cpj = False if in_sample else True
+                            
                             try:
-                                cube.run_sl_io_correct()
-                                log_queue.put(str(datetime.datetime.now())+': successfully ran IO correct for '+\
-                                              str(aorkey)+', '+fixed_objname+', '+mod+str(suborder)+' in '+\
-                                              str(build_time)+' sec')
+                                start = time.time()
+                                log_queue.put(str(datetime.datetime.now())+': building cube '+savename+'...')
+    
+                                # Now we actually make the cubes
+                                cube.build_cube(suborder=suborder, savename=aorpath+savename, no_data=no_data)
+                                end = time.time()
+                                build_time = round((end-start), 1)
+                                log_queue.put(str(datetime.datetime.now())+': successfully built '+savename+' in '+\
+                                             str(build_time)+' sec')
                             except Exception as e:
-                                log_queue.put(str(datetime.datetime.now())+': error running IO correct for AORKEY='+\
+                                log_queue.put(str(datetime.datetime.now())+': cube build failed (AORKEY='+str(aorkey)+\
+                                              ')! Error: '+str(e))
+                                continue
+    
+                            # If SL, run sl_io_correct and save an alternate cube
+                            if chnlnum == 0:
+                                try:
+                                    cube.run_sl_io_correct()
+                                    log_queue.put(str(datetime.datetime.now())+': successfully ran IO correct for '+\
+                                                  savename+' in '+\
+                                                  str(build_time)+' sec')
+                                except Exception as e:
+                                    log_queue.put(str(datetime.datetime.now())+': error running IO correct for AORKEY='+\
+                                                  str(aorkey)+'. Error: '+str(e))
+                                    continue
+    
+                            try:
+                                # Saving additional information
+                                cube.save_cpj_params(delete_cpj=delete_cpj) # .cpj files take a lot of storage!
+                                cube.save_background()
+                                cube.save_background_depth_map()
+                                cube.save_shardlist()
+                                cube.save_stats()
+                            except Exception as e:
+                                log_queue.put(str(datetime.datetime.now())+': error saving non-cube products for AORKEY='+\
                                               str(aorkey)+'. Error: '+str(e))
                                 continue
-
-                        try:
-                            # Saving additional information
-                            cube.save_cpj_params(delete_cpj=delete_cpj) # .cpj files take a lot of storage!
-                            cube.save_background()
-                            cube.save_background_depth_map()
-                            cube.save_shardlist()
-                            cube.save_stats()
-                        except Exception as e:
-                            log_queue.put(str(datetime.datetime.now())+': error saving non-cube products for AORKEY='+\
-                                          str(aorkey)+'. Error: '+str(e))
-                            continue
 
 # These are necessary for the "workers" to be able to write the log without collisions
 def write_log(queue):

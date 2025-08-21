@@ -27,7 +27,7 @@ class SimlaCube:
 
         # use simladbX so that unwanted objects and map types are excluded
         q = query(simladbX.select(DB_bcd.DCEID, DB_bcd.FILE_NAME, DB_bcd.RAMPTIME, \
-                                  DB_bcd.OBJECT, DB_bcd.MJD_OBS, DB_bcd.PROGID, \
+                                  DB_bcd.OBJECT, DB_bcd.MJD_OBS, DB_bcd.PROGID, DB_bcd.OBJTYPE, \
                                   DB_bcd.STEPSPAR, DB_bcd.STEPSPER, DB_bcd.RA_FOV, DB_bcd.DEC_FOV, \
                                   DB_foreground.ZODI_12, DB_foreground.ISM_12)\
                           .where((DB_bcd.AORKEY==aorkey)&(DB_bcd.CHNLNUM==chnlnum)))
@@ -38,6 +38,7 @@ class SimlaCube:
         self.dceids = np.unique(q['DCEID'].to_numpy())
         self.RAMPTIME = np.unique(q['RAMPTIME'].to_numpy())[0]
         self.PROGID = np.unique(q['PROGID'].to_numpy())[0]
+        self.OBJTYPE = np.unique(q['OBJTYPE'].to_numpy())[0]
         self.IRS_object_name = np.unique(q['OBJECT'].to_numpy())[0]
         self.MJD_mean = np.mean(np.unique(q['MJD_OBS'].to_numpy()))
         self.STEPSPAR = np.unique(q['STEPSPAR'].to_numpy())[0]
