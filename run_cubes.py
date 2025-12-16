@@ -20,12 +20,14 @@ import os
 import gc
 import string
 import copy
+import glob
+import pandas as pd
 from astropy.io import fits
 from multiprocessing import Pool, Process, Queue
 
 from simladb import query, DB_bcd
 from simla_variables import SimlaVar
-from simla_utils import run_inputs_loader
+from simla_utils import run_inputs_loader, generate_QA_form
 from simlacube import SimlaCube
 
 run_start = time.time()
@@ -206,7 +208,45 @@ def run_cubes_in_progid(progid):
                                 cube.save_shardlist()
                                 cube.save_stats()
                             except Exception as e:
-                                log_queue.put(str(datetime.datetime.now())+': error saving non-cube products for AORKEY='+\
+                                log_queue.put(str(datetime.datetime.now())+': error saving additional information for AORKEY='+\
+                                              str(aorkey)+'. Error: '+str(e))
+                                continue
+
+                            try:
+                                # Save the non-cube deliverable data products
+                                cube.make_dark_mask()
+                                cube.save_moment_zero_map()
+                                cube.save_spectrum()
+                            except Exception as e:
+                                log_queue.put(str(datetime.datetime.now())+': error saving non-cube deliverable products for AORKEY='+\
+                                              str(aorkey)+'. Error: '+str(e))
+                                continue
+
+                            try:
+                                # Create the quality assurance PDF
+                                darkmask = fits.getdata(cube.savename.replace('.fits', '_darkmask.fits'))
+                                brightmask = np.where(darkmask==0, 1, 0)
+
+                                cube.save_spectrum(specfile=cube.savename.replace('.fits', '_darkspec.dat'), \
+                                                   mask=darkmask)
+                                cube.save_spectrum(specfile=cube.savename.replace('.fits', '_brightspec.dat'), \
+                                                   mask=brightmask)
+                                
+                                if chnlnum == 0:
+                                    cube.save_spectrum(cubefile=cube.savename.replace('.fits', '_iocorr.fits'), \
+                                                       specfile=cube.savename.replace('.fits', '_iocorr-darkspec.dat'), \
+                                                       mask=darkmask)
+                                    cube.save_spectrum(cubefile=cube.savename.replace('.fits', '_iocorr.fits'), \
+                                                       specfile=cube.savename.replace('.fits', '_iocorr-brightspec.dat'), \
+                                                       mask=brightmask)
+                                    qa_iocorr = True
+                                else: qa_iocorr = False
+
+                                generate_QA_form(cube.savename, cube.savename.replace('.fits', '_QAplots.pdf'), \
+                                                 iocorr_spectra=qa_iocorr)
+
+                            except Exception as e:
+                                log_queue.put(str(datetime.datetime.now())+': error creating QA PDF for AORKEY='+\
                                               str(aorkey)+'. Error: '+str(e))
                                 continue
 
@@ -233,6 +273,11 @@ if __name__ == '__main__':
     with Pool(processes=SimlaVar().processors, initializer=init_worker, initargs=(log_queue,)) as pool: 
         for _ in pool.imap_unordered(run_cubes_in_progid, ps):
             pass
+
+    log_queue.put(str(datetime.datetime.now())+': compiling cube stats CSV.')
+    statsfiles = glob.glob(runpath+run_name+'/**/**/**/*stats.csv')
+    master_csv = pd.concat((pd.read_csv(f) for f in statsfiles), ignore_index=True)
+    master_csv.to_csv(runpath+run_name+'/cube_stats.csvs', index=False)
 
     run_end = time.time()
     log_queue.put('Done! This run took '+str(round((run_end-run_start)/3600, 2))+'hrs to complete.')

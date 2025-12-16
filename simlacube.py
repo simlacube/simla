@@ -3,12 +3,21 @@
 import numpy as np
 from astropy.stats import sigma_clip
 from astropy.io import fits
-import os
 from idlpy import IDL
 import pandas as pd
+from astropy.wcs import WCS
+from astropy.coordinates import SkyCoord
+from astropy import units as u
+import astropy
+from shapely import Polygon, Point
+from scipy.ndimage import zoom
+import ast
+import warnings, sys, os
+warnings.filterwarnings("ignore")
 
 from simladb import query, simladbX, DB_bcd, DB_shardpos, \
-                    DB_judge1, DB_judge2, DB_foreground
+                    DB_judge1, DB_judge2, DB_foreground, scorners
+from simla_utils import fmt_scorners
 from simla_variables import SimlaVar
 
 sl_n_shards = SimlaVar().sl_n_shards
@@ -97,7 +106,7 @@ class SimlaCube:
             q['AORKEY'].to_numpy(), q['DCEID'].to_numpy(), irspath+q['FILE_NAME'].to_numpy(), q['SUBORDER'].to_numpy(), \
             q['SHARD'].to_numpy(), q['MJD_OBS'].to_numpy(), q['BACKSUB_PHOT'].to_numpy(), q['F_MEDIAN'].to_numpy(), \
             q['ZODI_12'].to_numpy(), q['PROGID'].to_numpy(), q['RA_FOV'].to_numpy(), q['DEC_FOV'].to_numpy()
-
+        
         mod = ['SL', 'SH', 'LL', 'LH'][self.CHNLNUM]
         self.superdark = np.load(simlapath+'superdarks/tailored_superdarks/'+str(self.AORKEY)+'_'+mod+'.npy')
         self.zodiim = np.load(simlapath+'zodi_images/zodi_images/'+str(self.AORKEY)+'_'+mod+'.npy')
@@ -148,6 +157,7 @@ class SimlaCube:
                 
                 rank1_mask = np.where(shard_condition & (inaor_condition | ded_off_condition))
                 n_rank1 = len(rank1_mask[0])
+                this_shard_depth = len(rank1_mask[0])
                 final_mask.extend(rank1_mask[0].tolist())
                 if n_rank1 >= self.min_shard_depth:
                     rank_string += '1'
@@ -165,12 +175,12 @@ class SimlaCube:
                     # Take only up to min_shard_depth of these
                     trunc_remote_mask = sorted_remote_mask[:self.min_shard_depth-n_rank1]
                     final_mask.extend(trunc_remote_mask)
+                    this_shard_depth += len(trunc_remote_mask)
 
-                    # Record the rank
-                    this_shard_depth = len(trunc_remote_mask)
-                    if this_shard_depth == self.min_shard_depth: rank_string += '2'
-                    elif 0 < this_shard_depth < self.min_shard_depth: rank_string += '3'
-                    elif this_shard_depth == 0: rank_string += '4'
+                # Record the rank
+                if this_shard_depth == self.min_shard_depth: rank_string += '2'
+                elif 0 < this_shard_depth < self.min_shard_depth: rank_string += '3'
+                elif this_shard_depth == 0: rank_string += '4'
 
         # Final selection for shards we are going to use
         final_mask = np.asarray(final_mask)
@@ -349,6 +359,7 @@ class SimlaCube:
         '''
 
         self.savename = savename
+        self.suborder = suborder
         
         IDL.run('.RESET_SESSION')
 
@@ -378,20 +389,20 @@ class SimlaCube:
         os.system('mv '+savename.replace('.fits', '_unc.cpj')+' '+fixname_cpj)
         self.cpjname = fixname_cpj
 
-        # Remove the distortion keywords from the header
-        header = fits.getheader(savename)
-        dist_coeffs = [card.keyword for card in header.cards if \
-                       card.comment == 'distortion coefficient']
-        with fits.open(savename) as hdul:
-            for key in dist_coeffs:
-                del hdul[0].header[key]
-            del hdul[0].header['A_ORDER']
-            del hdul[0].header['B_ORDER']
-            del hdul[0].header['AP_ORDER']
-            del hdul[0].header['BP_ORDER']
-            del hdul[0].header['A_DMAX']
-            del hdul[0].header['B_DMAX']
-            hdul.writeto(savename, overwrite=True)
+        # # Remove the distortion keywords from the header
+        # header = fits.getheader(savename)
+        # dist_coeffs = [card.keyword for card in header.cards if \
+        #                card.comment == 'distortion coefficient']
+        # with fits.open(savename) as hdul:
+        #     for key in dist_coeffs:
+        #         del hdul[0].header[key]
+        #     del hdul[0].header['A_ORDER']
+        #     del hdul[0].header['B_ORDER']
+        #     del hdul[0].header['AP_ORDER']
+        #     del hdul[0].header['BP_ORDER']
+        #     del hdul[0].header['A_DMAX']
+        #     del hdul[0].header['B_DMAX']
+        #     hdul.writeto(savename, overwrite=True)
 
     def run_sl_io_correct(self, iocorr_savename=None):
 
@@ -492,12 +503,19 @@ class SimlaCube:
                      If None, it is saved with an automatically generated name next to the cube (_stats.csv).        
 
         '''
+
+        ncycles = fits.getheader(self.bcd_file_names[0])['NCYCLES']
+        length = [57, None, 168][self.CHNLNUM]
+        width = [3.7, None, 10.7][self.CHNLNUM]
+        self.map_ply = ncycles*(width/self.STEPSPER)*(length/self.STEPSPAR)
         
         if statfile_name is None: statfile_name = self.savename.replace('.fits', '_stats.csv')
         pd.DataFrame([{
             'CUBE_AORKEY': self.AORKEY,
-            'CUBE_RAMPTIME': self.RAMPTIME,
             'CUBE_CHNLNUM': self.CHNLNUM,
+            'CUBE_SUBORDER': self.suborder,
+            'CUBE_RAMPTIME': self.RAMPTIME,
+            'MAP_PLY': self.map_ply,
             'CUBE_MEAN_MJD': self.MJD_mean,
             'CUBE_ZODI_12um': self.ZODI_12,
             'CUBE_ISM_12um': self.ISM_12,
@@ -510,28 +528,233 @@ class SimlaCube:
             'BG_MEAN_JUDGE_AGREEMENT': self.bg_mean_judge_agreement,
         }]).to_csv(statfile_name)
 
+    def make_dark_mask(self, savefile=None):
+    
+        '''
+        Creates a pixel mask for a SIMLA cube corresponding to same-AOR 
+        shards used in the background.
+
+        savefile: (str or None) specify the save name for the map FITS file. 
+                     If None, it is saved with an automatically generated name next to the cube (_darkmask.fits). 
+        '''
+
+        cube_file = self.savename
+        suborder = self.suborder
+
+        if suborder == 3: suborder = 2 # bonus order shares the 2nd sub-slit aperture
+
+        if savefile is None: savefile = cube_file.replace('.fits', '_darkmask.fits')
+
+        stdout = sys.stdout
+        sys.stdout = open(os.devnull, 'w')
+    
+        # Load in the cube and shardlist
+        loadcube = fits.open(cube_file)
+        cube_data = loadcube[0].data
+        cube_wcs = WCS(loadcube[0].header, fobj=fits.open(cube_file), naxis=2)
         
-
+        cube_aor, chnlnum = int(loadcube[0].header['AORKEY']), int(loadcube[0].header['CHNLNUM'])
         
+        s_aors, s_dceids, s_ids = [], [], []
+        for d in sorted(np.unique(self.used_shard_data['DCEID'])):
+            s_aors.append(self.used_shard_data['AORKEY'][np.where(self.used_shard_data['DCEID']==d)][0])
+            s_dceids.append(d)
+            s_ids.append(str(sorted(self.used_shard_data['SHARD'][np.where((self.used_shard_data['DCEID']==d) & \
+                                                                           (self.used_shard_data['SUBORDER']==suborder))])))
+        s_aors, s_dceids, s_ids = np.asarray(s_aors), np.asarray(s_dceids), np.asarray(s_ids)
+        
+        # reformat
+        s_ids_reform, s_aors_reform, s_dceids_reform = [], [], []
+        for i in range(len(s_ids)):
+            idlist = np.asarray(ast.literal_eval(s_ids[i]))
+            if len(idlist) > 0:
+                s_ids_reform.extend(idlist)
+                s_aors_reform.extend(s_aors[i]*np.ones_like(idlist))
+                s_dceids_reform.extend(s_dceids[i]*np.ones_like(idlist))
+        s_ids, s_aors, s_dceids = \
+            np.asarray(s_ids_reform), np.asarray(s_aors_reform), np.asarray(s_dceids_reform)
+    
+        s_ids = s_ids.astype(int)
+        s_aors = s_aors.astype(int)
+        s_dceids = s_dceids.astype(int)
+    
+        # Get the shards from this AOR
+        m_aor = np.where(s_aors==cube_aor)
+        s_dceids, s_ids = s_dceids[m_aor], s_ids[m_aor]
+        s_pairs = np.asarray([s_dceids, s_ids]).T.tolist()
 
+        if len(s_dceids) > 0:
+            
+            # Query the DB for the shard corners of dark shards
+            q = query(simladbX.select(*scorners, DB_shardpos.DCEID, DB_shardpos.SHARD) \
+                      .where((DB_bcd.AORKEY==cube_aor)&(DB_shardpos.CHNLNUM==chnlnum)& \
+                             (DB_shardpos.SUBORDER==suborder)))
+            corners, q_dceids, q_ids = \
+                fmt_scorners(q), q['DCEID'].to_numpy(), q['SHARD'].to_numpy()
+            q_pairs = np.asarray([q_dceids, q_ids]).T.tolist()
+        
+            bg_mask = np.asarray([1 if i in s_pairs else 0 for i in q_pairs])
+            corners = corners[np.where(bg_mask)]
+        
+            # Take a representative slice of the cube for pixel grid
+            # and sub-sample it
+            scale = 10 # IMPORTANT: pixels will be evaluated as in dark shards after being 
+                       # scaled up by this amount (and then scaled back down)
+            pixgrid = zoom(cube_data[0], zoom=scale)
+        
+            # Resize the WCS
+            pixgrid_wcs = WCS(loadcube[0].header, fobj=fits.open(cube_file), naxis=2)
+            pixgrid_wcs = WCS(pixgrid_wcs.to_header())
+            pixgrid_wcs.wcs.crpix = pixgrid_wcs.wcs.crpix*scale 
+            pixgrid_wcs.wcs.cdelt = pixgrid_wcs.wcs.cdelt/scale
+            pixgrid_wcs.array_shape = (
+                    int(pixgrid.shape[0] * scale),
+                    int(pixgrid.shape[1] * scale),
+                )
+        
+            def clip_pixel(x, y):
+        
+                # return the fraction of the pixel at x,y that is in 
+                # the sky aperture
+                
+                s = 0.5
+                x0, y0 = x - s, y - s
+                x1, y1 = x - s, y + s
+                x2, y2 = x + s, y + s
+                x3, y3 = x + s, y - s
+                
+                pixel_polygon = Polygon([[x0, y0], [x1, y1], [x2, y2], [x3, y3]])
+                pixel_overlap = region_polygon.intersection(pixel_polygon).area
+                normalized_overlap = pixel_overlap / pixel_polygon.area
+                
+                return normalized_overlap
+        
+            # Loop through each shard region and get the overlap maps
+            overlap_cube = []
+            for shard in corners:
+        
+                try:
+        
+                    image_xsize = pixgrid.shape[1]
+                    image_ysize = pixgrid.shape[0]
+                    overlap_map = np.zeros_like(pixgrid)
+        
+                    # Pixel region of the shard
+                    pixel_region = []
+                    for p in shard:
+                        sky_c = SkyCoord(p[0], p[1], unit='deg')
+                        pixel_p = astropy.wcs.utils.skycoord_to_pixel(sky_c, pixgrid_wcs)
+                        pixel_region.append([pixel_p[0], pixel_p[1]])
+                    region_polygon = Polygon(pixel_region)
+                    
+                    # Narrow down the clipping area
+                    xs = [i[0] for i in pixel_region]
+                    ys = [i[1] for i in pixel_region]
+                    maxx = int(np.ceil(np.max(xs) + 1))
+                    minx = int(np.floor(np.min(xs) - 1))
+                    maxy = int(np.ceil(np.max(ys) + 1))
+                    miny = int(np.floor(np.min(ys) - 1))
+                    coords_to_check = [[x, y]
+                                      for x in np.arange(minx, maxx) if 0 <= x <= image_xsize
+                                      for y in np.arange(miny, maxy) if 0 <= y <= image_ysize]
+        
+                    for i in coords_to_check:
+                        try:
+                            x, y = i[0], i[1]
+                            p = Point(x, y)
+                            if region_polygon.exterior.distance(p) >= np.sqrt(2)/2 and region_polygon.contains(p):
+                                overlap_map[y, x] = 1.0
+                            elif region_polygon.exterior.distance(p) <= np.sqrt(2)/2:
+                                normalized_overlap = clip_pixel(x, y)
+                                overlap_map[y, x] = normalized_overlap
+                        except IndexError: pass # Handles regions larger than the cube
+            
+                    overlap_cube.append(overlap_map)
+        
+                except: overlap_cube.append(np.ones_like(pixgrid)*np.nan)
+        
+            main_overlap_map = np.max(overlap_cube, axis=0)
+            main_overlap_map = np.where(main_overlap_map==1, 1, 0)
+        
+            main_overlap_map = zoom(main_overlap_map, zoom=1/scale)
 
+        else: main_overlap_map = np.zeros_like(cube_data[0])
 
+        # Save to FITS
+        overlap_header = cube_wcs.to_header()
+        overlap_hdu = fits.PrimaryHDU(data=main_overlap_map, header=overlap_header)
+        overlap_hdu.writeto(savefile, overwrite=True)
+        
+        sys.stdout = stdout
 
+    def save_moment_zero_map(self, mapfile=None, cubefile=None):
 
+        '''
+        Save a moment zero (or white light) map of the cube.
 
+        mapfile: (str or None) specify the save name for the map FITS file. 
+                     If None, it is saved with an automatically generated name next to the cube (_mom0.fits).   
 
+        cubefile: (str or None) if None, presume the cube associated with SimlaCube.savename
+                    if str, give the name of the cube to make a moment zero map for.
 
+        '''
 
+        if cubefile is None: cubefile = self.savename
 
+        if mapfile is None: mapfile = cubefile.replace('.fits', '_mom0.fits')
 
+        cube_data = fits.getdata(cubefile)
+        mom0_data = np.nansum(cube_data, axis=0)
+        mom0_data = np.where(mom0_data==0, np.nan, mom0_data)
 
+        stdout = sys.stdout
+        sys.stdout = open(os.devnull, 'w')
+        
+        mom0_header = fits.getheader(cubefile)
+        mom0_hdu = fits.PrimaryHDU(data=mom0_data, header=mom0_header)
+        mom0_hdu.writeto(mapfile, overwrite=True)
+        
+        sys.stdout = stdout
 
+    def save_spectrum(self, specfile=None, mask=None, cubefile=None):
 
+        '''
+        Save a spectrum from the cube. The spectrum will be an *average* surface brightness.
 
+        specfile: (str or None) specify the save name for the spectrum .dat file. 
+                     If None, it is saved with an automatically generated name next to the cube (_spec.dat). 
 
+        mask: (arr or None) if not None, give a numpy array corresponding to pixels to extract
+                    for the spectrum. 1=extract, 0=don't extract
 
+        cubefile: (str or None) if None, presume the cube associated with SimlaCube.savename
+                    if str, give the name of the cube to make a moment zero map for.
 
+        '''
 
+        if cubefile is None: cubefile = self.savename
 
+        stdout = sys.stdout
+        sys.stdout = open(os.devnull, 'w')
+        
+        cube = fits.open(cubefile)
+        cubedata = cube[0].data
+        spectral_axis = cube[1].data[0][0].flatten()
 
+        unc_cube = fits.getdata(cubefile.replace('.fits', '_unc.fits'))
+
+        sys.stdout = stdout
+
+        if mask is None: mask = np.ones_like(cubedata[0])
+        mask = np.where(mask==0, np.nan, mask)
+
+        maskcube = np.asarray([mask for i in range(len(cubedata))])
+        spectrum = np.nansum(cubedata*maskcube, axis=(1,2))/np.nansum(maskcube, axis=(1,2))
+        unc_spectrum = np.sqrt(np.nansum((unc_cube*maskcube)**2, axis=(1,2)))/np.nansum(maskcube, axis=(1,2))
+
+        specdata = np.asarray([spectral_axis, spectrum, unc_spectrum]).T
+
+        if specfile is None: specfile = cubefile.replace('.fits', '_spec.dat')
+        np.savetxt(specfile, specdata)
         
