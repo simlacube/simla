@@ -239,7 +239,7 @@ def init_worker(queue):
     log_queue = queue
 
 # Initialize the workers and run
-ps = np.unique(progids)[:2]
+ps = np.unique(progids)
 if __name__ == '__main__':
 
     log_queue = Queue()
