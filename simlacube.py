@@ -705,7 +705,7 @@ class SimlaCube:
         if mapfile is None: mapfile = cubefile.replace('_cube.fits', '_mom0.fits')
 
         cube_data = fits.getdata(cubefile)
-        mom0_data = np.nansum(cube_data, axis=0)
+        mom0_data = np.nanmedian(cube_data, axis=0)
         mom0_data = np.where(mom0_data==0, np.nan, mom0_data)
 
         stdout = sys.stdout
