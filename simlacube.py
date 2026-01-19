@@ -415,7 +415,7 @@ class SimlaCube:
         '''
 
         if iocorr_savename is None:
-            iocorr_savename = self.savename.replace('.fits', '_iocorr.fits')
+            iocorr_savename = self.savename.replace('_cube.fits', '_iocorr.fits')
 
         IDL.run('.RESET_SESSION')
         IDL.run('cd, "'+simlapath+'sl_io_correct"')
@@ -439,7 +439,7 @@ class SimlaCube:
         IDL.cpjpath = self.savename.replace('.fits', '.cpj')
         IDL.run('.run '+cubismpath+'cubism/cube/cubeproj_load.pro')
         IDL.run('cube=cubeproj_load(cpjpath)')
-        IDL.run('cube->SaveBadPixels, "'+self.savename.replace('.fits', '.bpl')+'"')
+        IDL.run('cube->SaveBadPixels, "'+self.savename.replace('_cube.fits', '.bpl')+'"')
 
         if delete_cpj: os.remove(self.savename.replace('.fits', '.cpj'))
 
@@ -453,7 +453,7 @@ class SimlaCube:
 
         '''
 
-        if bg_savename is None: bg_savename = self.savename.replace('.fits', '_bg')
+        if bg_savename is None: bg_savename = self.savename.replace('_cube.fits', '_bg')
         np.save(bg_savename, self.background)
         np.save(bg_savename.replace('_bg', '_bg_unc'), self.background)
 
@@ -467,7 +467,7 @@ class SimlaCube:
 
         '''
 
-        if dmap_name is None: dmap_name = self.savename.replace('.fits', '_bgdepth')
+        if dmap_name is None: dmap_name = self.savename.replace('_cube.fits', '_bgdepth')
         np.save(dmap_name, self.background_depth_map)
 
     def save_shardlist(self, shardlist_name=None):
@@ -480,7 +480,7 @@ class SimlaCube:
 
         '''
 
-        if shardlist_name is None: shardlist_name = self.savename.replace('.fits', '_shardlist.csv')
+        if shardlist_name is None: shardlist_name = self.savename.replace('_cube.fits', '_shardlist.csv')
         s_aors, s_dces, s_ids_1, s_ids_2 = [], [], [], []
         for d in sorted(np.unique(self.used_shard_data['DCEID'])):
             s_aors.append(self.used_shard_data['AORKEY'][np.where(self.used_shard_data['DCEID']==d)][0])
@@ -509,7 +509,7 @@ class SimlaCube:
         width = [3.7, None, 10.7][self.CHNLNUM]
         self.map_ply = ncycles*(width/self.STEPSPER)*(length/self.STEPSPAR)
         
-        if statfile_name is None: statfile_name = self.savename.replace('.fits', '_stats.csv')
+        if statfile_name is None: statfile_name = self.savename.replace('_cube.fits', '_stats.csv')
         pd.DataFrame([{
             'CUBE_AORKEY': self.AORKEY,
             'CUBE_CHNLNUM': self.CHNLNUM,
@@ -543,7 +543,7 @@ class SimlaCube:
 
         if suborder == 3: suborder = 2 # bonus order shares the 2nd sub-slit aperture
 
-        if savefile is None: savefile = cube_file.replace('.fits', '_darkmask.fits')
+        if savefile is None: savefile = cube_file.replace('_cube.fits', '_darkmask.fits')
 
         stdout = sys.stdout
         sys.stdout = open(os.devnull, 'w')
@@ -702,7 +702,7 @@ class SimlaCube:
 
         if cubefile is None: cubefile = self.savename
 
-        if mapfile is None: mapfile = cubefile.replace('.fits', '_mom0.fits')
+        if mapfile is None: mapfile = cubefile.replace('_cube.fits', '_mom0.fits')
 
         cube_data = fits.getdata(cubefile)
         mom0_data = np.nansum(cube_data, axis=0)
@@ -755,6 +755,6 @@ class SimlaCube:
 
         specdata = np.asarray([spectral_axis, spectrum, unc_spectrum]).T
 
-        if specfile is None: specfile = cubefile.replace('.fits', '_spec.dat')
+        if specfile is None: specfile = cubefile.replace('_cube.fits', '_spec.dat')
         np.savetxt(specfile, specdata)
         

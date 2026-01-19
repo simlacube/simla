@@ -35,22 +35,17 @@ run_start = time.time()
 simlapath = SimlaVar().simlapath
 runpath = SimlaVar().runpath
 
-# Mapping between the PROGID and the name of the run. That is not in the DB.
-prognames_map = np.genfromtxt(simlapath+'storage/prognames.txt', dtype=str).T # [names, progids]
-prognames = prognames_map[0]
-valid_progids = prognames_map[1].astype(int) # we will only build cubes from this file.
-
 # Info for programs that we will make cubes from
 q = query(DB_bcd.select(DB_bcd.AORKEY, DB_bcd.DCEID, DB_bcd.FILE_NAME, \
-                        DB_bcd.PROGID, DB_bcd.OBJECT, DB_bcd.CHNLNUM) \
+                        DB_bcd.PROGID, DB_bcd.CHNLNUM) \
                 .where(((DB_bcd.CHNLNUM==0) | (DB_bcd.CHNLNUM==2)) & \
                        (DB_bcd.AOT_TYPE=='IrsMap') & \
                        (DB_bcd.OBJTYPE.notin(SimlaVar().banned_objtypes)) & \
                        (DB_bcd.OBJECT.notin(SimlaVar().banned_objects)) & \
                        (DB_bcd.AORKEY.notin(SimlaVar().banned_aorkeys))))
-aorkeys, dceids, fnames, progids, objects, chnlnums = \
+aorkeys, dceids, fnames, progids, chnlnums = \
     q['AORKEY'].to_numpy(), q['DCEID'].to_numpy(), q['FILE_NAME'].to_numpy(), \
-    q['PROGID'].to_numpy(), q['OBJECT'].to_numpy(), q['CHNLNUM'].to_numpy()
+    q['PROGID'].to_numpy(), q['CHNLNUM'].to_numpy()
 
 # Interprets the txt file containing the inputs
 inputs = run_inputs_loader(simlapath+'run_inputs.txt')
@@ -78,177 +73,158 @@ def run_cubes_in_progid(progid):
     
     global build_times
 
-    # Make sure that we are only building programs that we want to be
-    if progid in valid_progids:
+    log_queue.put(str(datetime.datetime.now())+': '+'starting PROGID:'+str(progid))
 
-        progname = prognames[np.where(valid_progids==progid)][0]
+    progpath = runpath+run_name+'/PROGID-'+str(progid)+'/'
+    if not os.path.exists(progpath):
+        os.mkdir(progpath)
 
-        log_queue.put(str(datetime.datetime.now())+': '+'starting PROGID:'+str(progid)+' ('+progname+')')
+    for aorkey in sorted(np.unique(aorkeys[np.where(progids==progid)])):
 
-        progpath = runpath+run_name+'/'+progname+'_PROGID'+str(progid)+'/'
-        if not os.path.exists(progpath):
-            os.mkdir(progpath)
-    
-        for objname in np.unique(objects[np.where(progids==progid)]):
+        # Try to fix some memory issues.
+        gc.collect()
 
-            # Replace any characters that will cause problems
-            fixed_objname = objname.replace(' ','_') \
-                                   .replace('/','-') \
-                                   .replace('(','_') \
-                                   .replace(')','_') \
-                                   .replace(',','_') \
-                                   .replace('&','_')
-            objpath = progpath+fixed_objname+'/'
-            if not os.path.exists(objpath):
-                os.mkdir(objpath)
-    
-            for aorkey in sorted(np.unique(aorkeys[np.where((progids==progid) & \
-                                                            (objects==objname))])):
+        aorpath = progpath+'AORKEY-'+str(aorkey)+'/'
+        if not os.path.exists(aorpath):
+            os.mkdir(aorpath)
 
-                # Try to fix some memory issues.
-                gc.collect()
-        
-                aorpath = objpath+str(aorkey)+'/'
-                if not os.path.exists(aorpath):
-                    os.mkdir(aorpath)
-        
-                for chnlnum in sorted(np.unique(chnlnums[np.where((progids==progid) & \
-                                                                  (aorkeys==aorkey))])):
+        for chnlnum in sorted(np.unique(chnlnums[np.where((progids==progid) & \
+                                                          (aorkeys==aorkey))])):
 
+            try:
+                mod = ['SL', 'SH', 'LL', 'LH'][chnlnum]
+
+                # Init the cube object
+                cube = SimlaCube(aorkey=aorkey, chnlnum=chnlnum)
+
+                # Make the BG, valid for all suborders in this channel
+                log_queue.put(str(datetime.datetime.now())+': '+\
+                              'making background for '+str(aorkey)+\
+                              ', '+mod+'...')
+                cube.make_background(
+                    j1_cut=inputs['j1_cut'], \
+                    j2_cut=inputs['j2_cut'], \
+                    deltat=inputs['deltat'], \
+                    zodi_cut=inputs['zodi_cut'], \
+                    ism_cut=inputs['ism_cut'], \
+                    sigma_cut=inputs['sigma_cut'], \
+                    min_shard_depth=inputs['min_shard_depth'], \
+                )
+            except Exception as e:
+                log_queue.put(str(datetime.datetime.now())+': background failed (AORKEY='+str(aorkey)+\
+                              ')! Error: '+str(e))
+                continue
+            
+            # If the map has multiple targets, need to make multiple cubes
+            if cube.OBJTYPE == 'TargetMulti' or cube.OBJTYPE == 'TargetFixedCluster':
+                sample_header = fits.getheader(cube.bcd_file_names[0])
+                n_fovid = len(np.unique([fits.getheader(i)['FOVID'] for i in cube.bcd_file_names]))
+                nbcd_per_map = sample_header['STEPSPAR'] * sample_header['STEPSPER'] * n_fovid 
+                n_unique_bcds = len(cube.bcd_file_names) / sample_header['NCYCLES']
+                n_maps = int(n_unique_bcds / nbcd_per_map)
+                nbcd_per_map = nbcd_per_map * sample_header['NCYCLES']
+                sorted_bcds = sorted(cube.bcd_file_names)
+                letters = list(string.ascii_uppercase)
+                cubelist, savenames = [], []
+                for mapnum in range(n_maps):
+                    bcds_in_map = sorted_bcds[mapnum*nbcd_per_map: (mapnum*nbcd_per_map)+nbcd_per_map]
+                    subcube = copy.deepcopy(cube)
+                    subcube.bcd_file_names = np.asarray(bcds_in_map)
+                    savename = str(aorkey)+letters[mapnum]+'_'+mod
+                    cubelist.append(subcube)
+                    savenames.append(savename)
+            else: 
+                cubelist = [cube]
+                savenames = [str(aorkey)+'_'+mod]
+
+            for cubeindex in range(len(cubelist)):
+                cube = cubelist[cubeindex]
+
+                for suborder in [1, 2, 3]:
+
+                    savename = savenames[cubeindex]+str(suborder)+'_cube.fits'
+
+                    # Set up special treatment for quality assurance cubes
+                    in_sample = True if str(aorkey)+'_'+mod+str(suborder) in sample else False
+                    no_data = False if in_sample else True
+                    delete_cpj = False if in_sample else True
+                    
                     try:
-                        mod = ['SL', 'SH', 'LL', 'LH'][chnlnum]
+                        start = time.time()
+                        log_queue.put(str(datetime.datetime.now())+': building cube '+savename+'...')
 
-                        # Init the cube object
-                        cube = SimlaCube(aorkey=aorkey, chnlnum=chnlnum)
-
-                        # Make the BG, valid for all suborders in this channel
-                        log_queue.put(str(datetime.datetime.now())+': '+\
-                                      'making background for '+str(aorkey)+\
-                                      ', '+fixed_objname+', '+mod+'...')
-                        cube.make_background(
-                            j1_cut=inputs['j1_cut'], \
-                            j2_cut=inputs['j2_cut'], \
-                            deltat=inputs['deltat'], \
-                            zodi_cut=inputs['zodi_cut'], \
-                            ism_cut=inputs['ism_cut'], \
-                            sigma_cut=inputs['sigma_cut'], \
-                            min_shard_depth=inputs['min_shard_depth'], \
-                        )
+                        # Now we actually make the cubes
+                        cube.build_cube(suborder=suborder, savename=aorpath+savename, no_data=no_data)
+                        end = time.time()
+                        build_time = round((end-start), 1)
+                        log_queue.put(str(datetime.datetime.now())+': successfully built '+savename+' in '+\
+                                     str(build_time)+' sec')
                     except Exception as e:
-                        log_queue.put(str(datetime.datetime.now())+': background failed (AORKEY='+str(aorkey)+\
+                        log_queue.put(str(datetime.datetime.now())+': cube build failed (AORKEY='+str(aorkey)+\
                                       ')! Error: '+str(e))
                         continue
-                    
-                    # If the map has multiple targets, need to make multiple cubes
-                    if cube.OBJTYPE == 'TargetMulti' or cube.OBJTYPE == 'TargetFixedCluster':
-                        sample_header = fits.getheader(cube.bcd_file_names[0])
-                        n_fovid = len(np.unique([fits.getheader(i)['FOVID'] for i in cube.bcd_file_names]))
-                        nbcd_per_map = sample_header['STEPSPAR'] * sample_header['STEPSPER'] * n_fovid 
-                        n_unique_bcds = len(cube.bcd_file_names) / sample_header['NCYCLES']
-                        n_maps = int(n_unique_bcds / nbcd_per_map)
-                        nbcd_per_map = nbcd_per_map * sample_header['NCYCLES']
-                        sorted_bcds = sorted(cube.bcd_file_names)
-                        letters = list(string.ascii_uppercase)
-                        cubelist, savenames = [], []
-                        for mapnum in range(n_maps):
-                            bcds_in_map = sorted_bcds[mapnum*nbcd_per_map: (mapnum*nbcd_per_map)+nbcd_per_map]
-                            subcube = copy.deepcopy(cube)
-                            subcube.bcd_file_names = np.asarray(bcds_in_map)
-                            savename = str(aorkey)+letters[mapnum]+'_'+fixed_objname+'_'+mod
-                            cubelist.append(subcube)
-                            savenames.append(savename)
-                    else: 
-                        cubelist = [cube]
-                        savenames = [str(aorkey)+'_'+fixed_objname+'_'+mod]
 
-                    for cubeindex in range(len(cubelist)):
-                        cube = cubelist[cubeindex]
-    
-                        for suborder in [1, 2, 3]:
+                    # If SL, run sl_io_correct and save an alternate cube
+                    if chnlnum == 0:
+                        try:
+                            cube.run_sl_io_correct()
+                            log_queue.put(str(datetime.datetime.now())+': successfully ran IO correct for '+\
+                                          savename+' in '+\
+                                          str(build_time)+' sec')
+                        except Exception as e:
+                            log_queue.put(str(datetime.datetime.now())+': error running IO correct for AORKEY='+\
+                                          str(aorkey)+'. Error: '+str(e))
+                            continue
 
-                            savename = savenames[cubeindex]+str(suborder)+'.fits'
-    
-                            # Set up special treatment for quality assurance cubes
-                            in_sample = True if str(aorkey)+'_'+mod+str(suborder) in sample else False
-                            no_data = False if in_sample else True
-                            delete_cpj = False if in_sample else True
-                            
-                            try:
-                                start = time.time()
-                                log_queue.put(str(datetime.datetime.now())+': building cube '+savename+'...')
-    
-                                # Now we actually make the cubes
-                                cube.build_cube(suborder=suborder, savename=aorpath+savename, no_data=no_data)
-                                end = time.time()
-                                build_time = round((end-start), 1)
-                                log_queue.put(str(datetime.datetime.now())+': successfully built '+savename+' in '+\
-                                             str(build_time)+' sec')
-                            except Exception as e:
-                                log_queue.put(str(datetime.datetime.now())+': cube build failed (AORKEY='+str(aorkey)+\
-                                              ')! Error: '+str(e))
-                                continue
-    
-                            # If SL, run sl_io_correct and save an alternate cube
-                            if chnlnum == 0:
-                                try:
-                                    cube.run_sl_io_correct()
-                                    log_queue.put(str(datetime.datetime.now())+': successfully ran IO correct for '+\
-                                                  savename+' in '+\
-                                                  str(build_time)+' sec')
-                                except Exception as e:
-                                    log_queue.put(str(datetime.datetime.now())+': error running IO correct for AORKEY='+\
-                                                  str(aorkey)+'. Error: '+str(e))
-                                    continue
-    
-                            try:
-                                # Saving additional information
-                                cube.save_cpj_params(delete_cpj=delete_cpj) # .cpj files take a lot of storage!
-                                cube.save_background()
-                                cube.save_background_depth_map()
-                                cube.save_shardlist()
-                                cube.save_stats()
-                            except Exception as e:
-                                log_queue.put(str(datetime.datetime.now())+': error saving additional information for AORKEY='+\
-                                              str(aorkey)+'. Error: '+str(e))
-                                continue
+                    try:
+                        # Saving additional information
+                        cube.save_cpj_params(delete_cpj=delete_cpj) # .cpj files take a lot of storage!
+                        cube.save_background()
+                        cube.save_background_depth_map()
+                        cube.save_shardlist()
+                        cube.save_stats()
+                    except Exception as e:
+                        log_queue.put(str(datetime.datetime.now())+': error saving additional information for AORKEY='+\
+                                      str(aorkey)+'. Error: '+str(e))
+                        continue
 
-                            try:
-                                # Save the non-cube deliverable data products
-                                cube.make_dark_mask()
-                                cube.save_moment_zero_map()
-                                cube.save_spectrum()
-                            except Exception as e:
-                                log_queue.put(str(datetime.datetime.now())+': error saving non-cube deliverable products for AORKEY='+\
-                                              str(aorkey)+'. Error: '+str(e))
-                                continue
+                    try:
+                        # Save the non-cube deliverable data products
+                        cube.make_dark_mask()
+                        cube.save_moment_zero_map()
+                        cube.save_spectrum()
+                    except Exception as e:
+                        log_queue.put(str(datetime.datetime.now())+': error saving non-cube deliverable products for AORKEY='+\
+                                      str(aorkey)+'. Error: '+str(e))
+                        continue
 
-                            try:
-                                # Create the quality assurance PDF
-                                darkmask = fits.getdata(cube.savename.replace('.fits', '_darkmask.fits'))
-                                brightmask = np.where(darkmask==0, 1, 0)
+                    try:
+                        # Create the quality assurance PDF
+                        darkmask = fits.getdata(cube.savename.replace('.fits', '_darkmask.fits'))
+                        brightmask = np.where(darkmask==0, 1, 0)
 
-                                cube.save_spectrum(specfile=cube.savename.replace('.fits', '_darkspec.dat'), \
-                                                   mask=darkmask)
-                                cube.save_spectrum(specfile=cube.savename.replace('.fits', '_brightspec.dat'), \
-                                                   mask=brightmask)
-                                
-                                if chnlnum == 0:
-                                    cube.save_spectrum(cubefile=cube.savename.replace('.fits', '_iocorr.fits'), \
-                                                       specfile=cube.savename.replace('.fits', '_iocorr-darkspec.dat'), \
-                                                       mask=darkmask)
-                                    cube.save_spectrum(cubefile=cube.savename.replace('.fits', '_iocorr.fits'), \
-                                                       specfile=cube.savename.replace('.fits', '_iocorr-brightspec.dat'), \
-                                                       mask=brightmask)
-                                    qa_iocorr = True
-                                else: qa_iocorr = False
+                        cube.save_spectrum(specfile=cube.savename.replace('.fits', '_darkspec.dat'), \
+                                           mask=darkmask)
+                        cube.save_spectrum(specfile=cube.savename.replace('.fits', '_brightspec.dat'), \
+                                           mask=brightmask)
+                        
+                        if chnlnum == 0:
+                            cube.save_spectrum(cubefile=cube.savename.replace('.fits', '_iocorr.fits'), \
+                                               specfile=cube.savename.replace('.fits', '_iocorr-darkspec.dat'), \
+                                               mask=darkmask)
+                            cube.save_spectrum(cubefile=cube.savename.replace('.fits', '_iocorr.fits'), \
+                                               specfile=cube.savename.replace('.fits', '_iocorr-brightspec.dat'), \
+                                               mask=brightmask)
+                            qa_iocorr = True
+                        else: qa_iocorr = False
 
-                                generate_QA_form(cube.savename, cube.savename.replace('.fits', '_QAplots.pdf'), \
-                                                 iocorr_spectra=qa_iocorr)
+                        generate_QA_form(cube.savename, cube.savename.replace('.fits', '_QAplots.pdf'), \
+                                         iocorr_spectra=qa_iocorr)
 
-                            except Exception as e:
-                                log_queue.put(str(datetime.datetime.now())+': error creating QA PDF for AORKEY='+\
-                                              str(aorkey)+'. Error: '+str(e))
-                                continue
+                    except Exception as e:
+                        log_queue.put(str(datetime.datetime.now())+': error creating QA PDF for AORKEY='+\
+                                      str(aorkey)+'. Error: '+str(e))
+                        continue
 
 # These are necessary for the "workers" to be able to write the log without collisions
 def write_log(queue):
@@ -263,7 +239,7 @@ def init_worker(queue):
     log_queue = queue
 
 # Initialize the workers and run
-ps = np.unique(progids)
+ps = np.unique(progids)[:2]
 if __name__ == '__main__':
 
     log_queue = Queue()
