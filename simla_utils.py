@@ -13,7 +13,16 @@ from astropy.io import fits
 import gc
 from astropy.nddata.utils import Cutout2D
 import glob
+from matplotlib.backends.backend_pdf import PdfPages
+from reproject.mosaicking import reproject_and_coadd
+from reproject import reproject_interp
+from reproject.mosaicking import find_optimal_celestial_wcs
+from astropy.io import fits
+import matplotlib.pyplot as plt
+import warnings, sys, os
+warnings.filterwarnings("ignore")
 
+from simladb import query, simladb, DB_bcd, DB_bcdwise
 from simla_variables import SimlaVar
 simlavar = SimlaVar()
 simlapath = simlavar.simlapath
@@ -714,3 +723,170 @@ class bcd_spectrum:
         final_mask = np.where(fluxes==fluxes)
 
         return wavelengths[final_mask], fluxes[final_mask]
+
+def generate_QA_form(cube_filename, pdf_savename, iocorr_spectra=False):
+
+    '''
+    Generate a PDF file that contains high-level plots that are useful
+    for quality assurance.
+
+    Assumes that the following SimlaCube outputs have been saved, and that
+    they follow the generic file name system.
+        - make_dark_mask
+        - save_moment_zero_map
+        - save_spectrum
+
+    For the spectra, save_spectrum should have run such that there is a 
+    *_darkspec.dat, *_brighspec.dat, and corresponding files if there are 
+    IO versions.
+
+    cube_filename: (str) the file name of the SIMLA cube for QA.
+    pdf_savename: (str) the name of the file to save the PDF to.
+    iocorr_spectra: (bool) whether to extract and show the IO corrected spectra.
+
+    '''
+
+    def spectrumplot(cube_filename, iocorr_spectra=False):
+    
+        fig, axs = plt.subplots(2, 1, figsize=(15, 14))
+    
+        darkfile = cube_filename.replace('.fits', '_darkspec.dat')
+        brightfile = cube_filename.replace('.fits', '_brightspec.dat')
+    
+        if iocorr_spectra:
+            darkfile_io = cube_filename.replace('.fits', '_iocorr-darkspec.dat')
+            brightfile_io = cube_filename.replace('.fits', '_iocorr-brightspec.dat')
+    
+        def plotter(filename, kind):
+    
+            color = {
+                'Dark': 'blue',
+                'On Source': 'orange',
+                'Dark IO Corrected': 'darkgreen',
+                'On Source IO Corrected': 'red',
+            }[kind]
+    
+            axes = {
+                'Dark': axs,
+                'On Source': [axs[0]],
+                'Dark IO Corrected': axs,
+                'On Source IO Corrected': [axs[0]],
+            }[kind]
+    
+            l, f, u = np.genfromtxt(filename).T
+    
+            for ax in axes:
+                ax.step(l, f, where='mid', color=color, label=kind)
+                ax.fill_between(l, y1=f-u, y2=f+u, alpha=0.3, color=color)
+    
+        plotter(darkfile, 'Dark')
+        plotter(brightfile, 'On Source')
+    
+        if iocorr_spectra:
+            plotter(darkfile_io, 'Dark IO Corrected')
+            plotter(brightfile_io, 'On Source IO Corrected')
+    
+        axs[0].legend(fontsize='large', loc='upper right')
+        axs[1].legend(fontsize='large', loc='upper right')
+    
+        axs[0].set_xlabel(r'Wavelength ($\mathrm{\mu m}$)', fontsize='large')
+        axs[1].set_xlabel(r'Wavelength ($\mathrm{\mu m}$)', fontsize='large')
+        
+        axs[0].set_ylabel(r'Mean Surface Brightness ($\mathrm{MJy\,sr^{-1}}$)', fontsize='large')
+        axs[1].set_ylabel(r'Mean Surface Brightness ($\mathrm{MJy\,sr^{-1}}$)', fontsize='large')
+    
+        axs[0].set_title('Dark and On Source Spectra', fontsize='large')
+        axs[1].set_title('Dark Spectra Only', fontsize='large')
+    
+        return fig
+    
+    def whitelightplot(cube_filename):
+    
+        fig, axs = plt.subplots(1, 1)
+        mom0 = fits.getdata(cube_filename.replace('.fits', '_mom0.fits'))
+        vmin, vmax = np.nanpercentile(mom0, [10, 90])
+        im = plt.imshow(mom0, vmin=vmin, vmax=vmax, origin='lower', cmap='plasma')
+        plt.title('Moment 0 Map')
+        fig.colorbar(im, orientation='horizontal')\
+            .set_label(r'10-90 Percentile Surface Brightness ($\mathrm{MJy\,sr^{-1}})$')
+    
+        return fig
+    
+    def IRS_on_WISE(cube_filename):
+    
+        stdout = sys.stdout
+        sys.stdout = open(os.devnull, 'w')
+        cube_data = fits.getdata(cube_filename)
+        cube_header = fits.getheader(cube_filename)
+        irs_wcs = WCS(cube_header, fobj=fits.open(cube_filename), naxis=2)
+        sys.stdout = stdout
+    
+        q = query(simladb.select(DB_bcdwise.WISE_FILE).where(DB_bcd.AORKEY==cube_header['AORKEY']))
+        background_image = SimlaVar().wisepath+q['WISE_FILE'][0]
+        
+        # IRS white light image but only the part with full overlap
+        irs_whitelight = np.nanmedian(np.asarray(cube_data), axis=0)
+        irs_whitelight = np.where(irs_whitelight==0, np.nan, irs_whitelight)
+    
+        # Zoom in on the background image
+        zoom_center = (cube_header['CRVAL1'], cube_header['CRVAL2'])
+        irs_skylength = np.max(irs_whitelight.shape)*(cube_header['CDELT2'])
+        zoom_size = irs_skylength*(1/fits.getheader(background_image)['CDELT2'])*1.5
+        wise_data, wise_header, wise_wcs = zoom_image(zoom_center, zoom_size, background_image)
+        
+        # Put on top of the background image
+        hdu_list = [(wise_data, wise_wcs), 
+                    (irs_whitelight, irs_wcs)]
+        wcs_out, shape_out = find_optimal_celestial_wcs(hdu_list)
+    
+        _, footprint = reproject_and_coadd(hdu_list,
+                                           wcs_out, shape_out=shape_out,
+                                           reproject_function=reproject_interp)
+        
+        irs_image_comb, _ = reproject_and_coadd(hdu_list,
+                                           wcs_out, shape_out=shape_out,
+                                           reproject_function=reproject_interp,
+                                           combine_function='last')
+    
+        wise_image_comb, _ = reproject_and_coadd(hdu_list,
+                                           wcs_out, shape_out=shape_out,
+                                           reproject_function=reproject_interp,
+                                           combine_function='first')
+        
+        irs_mask = np.where(footprint>1, 1, 0)
+        irs_image_comb = np.where(irs_mask==1, irs_image_comb, np.nan)
+        wise_image_comb = np.where(irs_mask==0, wise_image_comb, np.nan)
+    
+        fig, axs = plt.subplots(1, 1, figsize=(10, 10))
+        vmin, vmax = np.nanpercentile(wise_image_comb, [10, 90])
+        plt.imshow(wise_image_comb, vmin=vmin, vmax=vmax, cmap='gray_r', origin='lower')
+        vmin, vmax = np.nanpercentile(irs_image_comb, [10, 90])
+        plt.imshow(irs_image_comb, vmin=vmin, vmax=vmax, cmap='plasma', origin='lower')
+        plt.title('SIMLA Cube on WISE3 Image', fontsize='large')
+    
+        return fig
+
+    pdf = PdfPages(pdf_savename)
+    s = spectrumplot(cube_filename, iocorr_spectra).savefig(pdf, format='pdf', bbox_inches='tight')
+    plt.close()
+    m = whitelightplot(cube_filename).savefig(pdf, format='pdf', bbox_inches='tight')
+    plt.close()
+    i = IRS_on_WISE(cube_filename).savefig(pdf, format='pdf', bbox_inches='tight')
+    plt.close()
+    pdf.close()
+    
+    return
+
+
+
+
+
+
+
+
+
+
+
+
+
+    
