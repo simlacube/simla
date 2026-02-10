@@ -513,7 +513,7 @@ class SimlaCube:
         pd.DataFrame([{
             'CUBE_AORKEY': self.AORKEY,
             'CUBE_CHNLNUM': self.CHNLNUM,
-            'CUBE_SUBORDER': self.suborder,
+            'CUBE_SUBORDER': self.suborder,x
             'CUBE_RAMPTIME': self.RAMPTIME,
             'MAP_PLY': self.map_ply,
             'CUBE_MEAN_MJD': self.MJD_mean,
@@ -720,10 +720,10 @@ class SimlaCube:
     def save_spectrum(self, specfile=None, mask=None, cubefile=None):
 
         '''
-        Save a spectrum from the cube. The spectrum will be an *average* surface brightness.
+        Save a spectrum from the cube as an IPAC table. The spectrum will be an *average* surface brightness.
 
-        specfile: (str or None) specify the save name for the spectrum .dat file. 
-                     If None, it is saved with an automatically generated name next to the cube (_spec.dat). 
+        specfile: (str or None) specify the save name for the spectrum .tbl file. 
+                     If None, it is saved with an automatically generated name next to the cube (_spec.tbl). 
 
         mask: (arr or None) if not None, give a numpy array corresponding to pixels to extract
                     for the spectrum. 1=extract, 0=don't extract
@@ -753,8 +753,33 @@ class SimlaCube:
         spectrum = np.nansum(cubedata*maskcube, axis=(1,2))/np.nansum(maskcube, axis=(1,2))
         unc_spectrum = np.sqrt(np.nansum((unc_cube*maskcube)**2, axis=(1,2)))/np.nansum(maskcube, axis=(1,2))
 
-        specdata = np.asarray([spectral_axis, spectrum, unc_spectrum]).T
+        specdata = pd.DataFrame({
+            'lam': spectral_axis,
+            'Inu': spectrum,
+            'Inu_unc': unc_spectrum,
+        })
+        
+        table_data = Table.from_pandas(specdata)
+        
+        table_data['lam'].unit = u.micron
+        table_data['Inu'].unit = u.MJy/u.sr
+        table_data['Inu_unc'].unit = u.MJy/u.sr
+        
+        if specfile is None: specfile = cubefile.replace('_cube.fits', '_spec.tbl')
+        table_data.write(specfile, format='ipac', overwrite=True)
 
-        if specfile is None: specfile = cubefile.replace('_cube.fits', '_spec.dat')
-        np.savetxt(specfile, specdata)
+
+
+
+
+
+
+
+
+
+
+
+
+
+        
         
