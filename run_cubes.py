@@ -50,15 +50,19 @@ aorkeys, dceids, fnames, progids, chnlnums = \
 # Interprets the txt file containing the inputs
 inputs = run_inputs_loader(simlapath+'run_inputs.txt')
 
-# Set up the run directory
+# Set up the run directories
 run_name = inputs['run_name']
-if not os.path.exists(runpath+run_name):
-    os.mkdir(runpath+run_name)
+productpath = runpath+run_name+'/products/'
+ancillarypath = runpath+run_name+'/ancillary/'
+if not os.path.exists(productpath):
+    os.mkdir(productpath)
+if not os.path.exists(ancillarypath):
+    os.mkdir(ancillarypath)
 
 simlaver = inputs['simla_version']
 
-# Copy the run inputs into the new directory
-os.system('cp '+simlapath+'run_inputs.txt '+runpath+run_name+'/used_run_inputs.txt')
+# Copy the run inputs into the ancillary directory
+os.system('cp '+simlapath+'run_inputs.txt '+ancillarypath+'used_run_inputs.txt')
 
 # Check if there is supposed to be a quality assurance sample
 # If so, prepare a list of unique tags for the sample
@@ -77,18 +81,24 @@ def run_cubes_in_progid(progid):
 
     log_queue.put(str(datetime.datetime.now())+': '+'starting PROGID:'+str(progid))
 
-    progpath = runpath+run_name+'/PROGID-'+str(progid)+'/'
-    if not os.path.exists(progpath):
-        os.mkdir(progpath)
+    prod_progpath = productpath+'PROGID-'+str(progid)+'/'
+    anc_progpath = ancillarypath+'PROGID-'+str(progid)+'/'
+    if not os.path.exists(prod_progpath):
+        os.mkdir(prod_progpath)
+    if not os.path.exists(anc_progpath):
+        os.mkdir(anc_progpath)
 
     for aorkey in sorted(np.unique(aorkeys[np.where(progids==progid)])):
 
         # Try to fix some memory issues.
         gc.collect()
 
-        aorpath = progpath+'AORKEY-'+str(aorkey)+'/'
-        if not os.path.exists(aorpath):
-            os.mkdir(aorpath)
+        prod_aorpath = prod_progpath+'AORKEY-'+str(aorkey)+'/'
+        anc_aorpath = anc_progpath+'AORKEY-'+str(aorkey)+'/'
+        if not os.path.exists(prod_aorpath):
+            os.mkdir(prod_aorpath)
+        if not os.path.exists(anc_aorpath):
+            os.mkdir(anc_aorpath)
 
         for chnlnum in sorted(np.unique(chnlnums[np.where((progids==progid) & \
                                                           (aorkeys==aorkey))])):
@@ -156,7 +166,7 @@ def run_cubes_in_progid(progid):
                         log_queue.put(str(datetime.datetime.now())+': building cube '+savename+'...')
 
                         # Now we actually make the cubes
-                        cube.build_cube(suborder=suborder, savename=aorpath+savename, no_data=no_data)
+                        cube.build_cube(suborder=suborder, savename=prod_aorpath+savename, no_data=no_data)
                         end = time.time()
                         build_time = round((end-start), 1)
                         log_queue.put(str(datetime.datetime.now())+': successfully built '+savename+' in '+\
@@ -180,11 +190,11 @@ def run_cubes_in_progid(progid):
 
                     try:
                         # Saving additional information
-                        cube.save_cpj_params(delete_cpj=delete_cpj) # .cpj files take a lot of storage!
-                        cube.save_background()
-                        cube.save_background_depth_map()
-                        cube.save_shardlist()
-                        cube.save_stats()
+                        cube.save_cpj_params(delete_cpj=delete_cpj, move_to=anc_aorpath) # .cpj files take a lot of storage!
+                        cube.save_background(bg_savename=anc_aorpath+savename.replace('_cube.fits', '_bg'))
+                        cube.save_background_depth_map(dmap_name=anc_aorpath+savename.replace('_cube.fits', '_bgdepth'))
+                        cube.save_shardlist(shardlist_name=anc_aorpath+savename.replace('_cube.fits', '_shardlist.csv'))
+                        cube.save_stats(statfile_name=anc_aorpath+savename.replace('_cube.fits', '_stats.csv'))
                     except Exception as e:
                         log_queue.put(str(datetime.datetime.now())+': error saving additional information for AORKEY='+\
                                       str(aorkey)+'. Error: '+str(e))
@@ -201,26 +211,28 @@ def run_cubes_in_progid(progid):
                         continue
 
                     try:
+                        qa_savename_template = anc_aorpath+savename.replace('.fits', '')
+                        
                         # Create the quality assurance PDF
                         darkmask = fits.getdata(cube.savename.replace('.fits', '_darkmask.fits'))
                         brightmask = np.where(darkmask==0, 1, 0)
-
-                        cube.save_spectrum(specfile=cube.savename.replace('.fits', '_darkspec.dat'), \
+                        
+                        cube.save_spectrum(specfile=qa_savename_template+'_darkspec.dat', \
                                            mask=darkmask)
-                        cube.save_spectrum(specfile=cube.savename.replace('.fits', '_brightspec.dat'), \
+                        cube.save_spectrum(specfile=qa_savename_template+'_brightspec.dat', \
                                            mask=brightmask)
                         
                         if chnlnum == 0:
                             cube.save_spectrum(cubefile=cube.savename.replace('.fits', '_iocorr.fits'), \
-                                               specfile=cube.savename.replace('.fits', '_iocorr-darkspec.dat'), \
+                                               specfile=qa_savename_template+'_iocorr-darkspec.dat', \
                                                mask=darkmask)
                             cube.save_spectrum(cubefile=cube.savename.replace('.fits', '_iocorr.fits'), \
-                                               specfile=cube.savename.replace('.fits', '_iocorr-brightspec.dat'), \
+                                               specfile=qa_savename_template+'_iocorr-brightspec.dat', \
                                                mask=brightmask)
                             qa_iocorr = True
                         else: qa_iocorr = False
 
-                        generate_QA_form(cube.savename, cube.savename.replace('.fits', '_QAplots.pdf'), \
+                        generate_QA_form(cube.savename, qa_savename_template+'_QAplots.pdf', \
                                          iocorr_spectra=qa_iocorr)
 
                     except Exception as e:
@@ -253,9 +265,9 @@ if __name__ == '__main__':
             pass
 
     log_queue.put(str(datetime.datetime.now())+': compiling cube stats CSV.')
-    statsfiles = glob.glob(runpath+run_name+'/**/**/**/*stats.csv')
+    statsfiles = glob.glob(ancillarypath+'/**/**/**/*stats.csv')
     master_csv = pd.concat((pd.read_csv(f) for f in statsfiles), ignore_index=True)
-    master_csv.to_csv(runpath+run_name+'/cube_stats.csvs', index=False)
+    master_csv.to_csv(productpath+'/cube_stats.csvs', index=False)
 
     run_end = time.time()
     log_queue.put('Done! This run took '+str(round((run_end-run_start)/3600, 2))+'hrs to complete.')

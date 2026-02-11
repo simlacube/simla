@@ -425,24 +425,37 @@ class SimlaCube:
         IDL.run('sl_io_correct, cpjpath, save_location, /QUIET ')
         os.system('cd '+simlapath)
 
-    def save_cpj_params(self, delete_cpj=False):
+    def save_cpj_params(self, delete_cpj=False, move_to=None):
 
         '''
         Save various parameters stored in the .cpj files.
 
         delete_cpj: (bool) if True, delete the cube project file (.cpj) after saving parameters.
 
+        move_to: (None or str) if not None, the path to move output files to (include the final /).
+
         '''
 
         cubismpath = SimlaVar().cubismpath
 
+        cpjpath = self.savename.replace('.fits', '.cpj')
+        bplpath = self.savename.replace('_cube.fits', '.bpl')
+
         IDL.run('.RESET_SESSION')
-        IDL.cpjpath = self.savename.replace('.fits', '.cpj')
+        IDL.cpjpath = cpjpath
         IDL.run('.run '+cubismpath+'cubism/cube/cubeproj_load.pro')
         IDL.run('cube=cubeproj_load(cpjpath)')
-        IDL.run('cube->SaveBadPixels, "'+self.savename.replace('_cube.fits', '.bpl')+'"')
+        IDL.run('cube->SaveBadPixels, "'+bplpath+'"')
 
-        if delete_cpj: os.remove(self.savename.replace('.fits', '.cpj'))
+        if move_to is not None:
+            new_cpjpath = move_to+cpjpath.split('/')[-1]
+            new_bplpath = move_to+bplpath.split('/')[-1]
+            os.system('mv '+cpjpath+' '+new_cpjpath)
+            os.system('mv '+bplpath+' '+new_bplpath)
+
+        if delete_cpj:
+            if move_to is None: os.remove(cpjpath)
+            elif move_to is not None: os.remove(new_cpjpath)
 
     def save_background(self, bg_savename=None):
 
