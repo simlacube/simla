@@ -11,6 +11,7 @@ from astropy import units as u
 import astropy
 from shapely import Polygon, Point
 from scipy.ndimage import zoom
+from astropy.table import Table
 import ast
 import warnings, sys, os
 warnings.filterwarnings("ignore")
@@ -705,7 +706,7 @@ class SimlaCube:
         if mapfile is None: mapfile = cubefile.replace('_cube.fits', '_mom0.fits')
 
         cube_data = fits.getdata(cubefile)
-        mom0_data = np.nanmedian(cube_data, axis=0)
+        mom0_data = np.nanmean(cube_data, axis=0)
         mom0_data = np.where(mom0_data==0, np.nan, mom0_data)
 
         stdout = sys.stdout
@@ -768,18 +769,3 @@ class SimlaCube:
         if specfile is None: specfile = cubefile.replace('_cube.fits', '_spec.tbl')
         table_data.write(specfile, format='ipac', overwrite=True)
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-        
-        
