@@ -209,7 +209,10 @@ def run_cubes_in_progid(progid):
                         cube.make_dark_mask(simlaver=simlaver)
                         cube.save_moment_zero_map(simlaver=simlaver)
                         cube.save_spectrum()
-                        # if chnlnum == 0: cube.save_spectrum(specfile=prod_aorpath+savename.replace('_cube.fits', '_spec.tbl'), cubefile=None)
+                        if chnlnum == 0: 
+                            cube.save_spectrum(specfile=prod_aorpath+savename.replace('_cube.fits', '_spec-iocorr.tbl'), 
+                                               cubefile=prod_aorpath+savename.replace('.fits', '-iocorr.fits'))
+                            
                     except Exception as e:
                         log_queue.put(str(datetime.datetime.now())+': error saving non-cube deliverable products for AORKEY='+\
                                       str(aorkey)+'. Error: '+str(e))
@@ -228,10 +231,10 @@ def run_cubes_in_progid(progid):
                                            mask=brightmask)
                         
                         if chnlnum == 0:
-                            cube.save_spectrum(cubefile=cube.savename.replace('_cube.fits', '-iocorr.fits'), \
+                            cube.save_spectrum(cubefile=cube.savename.replace('_cube.fits', '_cube-iocorr.fits'), \
                                                specfile=qa_savename_template+'_darkspec-iocorr.tbl', \
                                                mask=darkmask)
-                            cube.save_spectrum(cubefile=cube.savename.replace('_cube.fits', '-iocorr.fits'), \
+                            cube.save_spectrum(cubefile=cube.savename.replace('_cube.fits', '_cube-iocorr.fits'), \
                                                specfile=qa_savename_template+'_brightspec-iocorr.tbl', \
                                                mask=brightmask)
                             qa_iocorr = True

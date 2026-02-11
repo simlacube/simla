@@ -416,7 +416,7 @@ class SimlaCube:
         '''
 
         if iocorr_savename is None:
-            iocorr_savename = self.savename.replace('_cube.fits', '-iocorr.fits')
+            iocorr_savename = self.savename.replace('_cube.fits', '_cube-iocorr.fits')
 
         IDL.run('.RESET_SESSION')
         IDL.run('cd, "'+simlapath+'sl_io_correct"')
@@ -805,5 +805,3 @@ class SimlaCube:
         
         if specfile is None: specfile = cubefile.replace('_cube.fits', '_spec.tbl')
         table_data.write(specfile, format='ipac', overwrite=True)
-
-
