@@ -529,14 +529,16 @@ class SimlaCube:
             'BG_MEAN_JUDGE_AGREEMENT': self.bg_mean_judge_agreement,
         }]).to_csv(statfile_name)
 
-    def make_dark_mask(self, savefile=None):
+    def make_dark_mask(self, savefile=None, simlaver='-1'):
     
         '''
         Creates a pixel mask for a SIMLA cube corresponding to same-AOR 
         shards used in the background.
 
         savefile: (str or None) specify the save name for the map FITS file. 
-                     If None, it is saved with an automatically generated name next to the cube (_darkmask.fits). 
+                     If None, it is saved with an automatically generated name next to the cube (_darkmask.fits).
+
+        simlaver: (str) the version of the SIMLA run for the FITS header.
         '''
 
         cube_file = self.savename
@@ -683,12 +685,19 @@ class SimlaCube:
 
         # Save to FITS
         overlap_header = cube_wcs.to_header()
+        
+        overlap_header.insert(26, ('SIMLAVER', simlaver, 'SIMLA pipeline version'))
+        overlap_header.insert(27, ('AORKEY', int(cubeheader['AORKEY']), 'IRS area obeservation request key'))
+        overlap_header.insert(28, ('CHNLNUM', cubeheader['CHNLNUM'], 'IRS channel: 0=SL, 1=SH, 2=LL, 3=LH'))
+        overlap_header.insert(29, ('APERNAME', cubeheader['APERNAME'], 'IRS module and order'))
+        overlap_header.insert(30, ('PROGID', cubeheader['PROGID'], 'IRS Program ID'))
+        
         overlap_hdu = fits.PrimaryHDU(data=main_overlap_map, header=overlap_header)
         overlap_hdu.writeto(savefile, overwrite=True)
         
         sys.stdout = stdout
 
-    def save_moment_zero_map(self, mapfile=None, cubefile=None):
+    def save_moment_zero_map(self, mapfile=None, cubefile=None, simlaver='-1'):
 
         '''
         Save a moment zero (or white light) map of the cube.
@@ -699,6 +708,8 @@ class SimlaCube:
         cubefile: (str or None) if None, presume the cube associated with SimlaCube.savename
                     if str, give the name of the cube to make a moment zero map for.
 
+        simlaver: (str) the version of the SIMLA run for the FITS header.
+
         '''
 
         if cubefile is None: cubefile = self.savename
@@ -708,11 +719,23 @@ class SimlaCube:
         cube_data = fits.getdata(cubefile)
         mom0_data = np.nanmean(cube_data, axis=0)
         mom0_data = np.where(mom0_data==0, np.nan, mom0_data)
-
+        
         stdout = sys.stdout
         sys.stdout = open(os.devnull, 'w')
         
-        mom0_header = fits.getheader(cubefile)
+        cubeheader = fits.getheader(cubefile)
+        wcs = WCS(cubeheader, fobj=fits.open(cubefile), naxis=2)
+        header = wcs.to_header()
+        
+        mom0_header = wcs.to_header()
+        
+        mom0_header.insert(26, ('SIMLAVER', simlaver, 'SIMLA pipeline version'))
+        mom0_header.insert(27, ('BUNIT', 'MJy/sr', 'Units of surface brightness data'))
+        mom0_header.insert(28, ('AORKEY', int(cubeheader['AORKEY']), 'IRS area obeservation request key'))
+        mom0_header.insert(29, ('CHNLNUM', cubeheader['CHNLNUM'], 'IRS channel: 0=SL, 1=SH, 2=LL, 3=LH'))
+        mom0_header.insert(30, ('APERNAME', cubeheader['APERNAME'], 'IRS module and order'))
+        mom0_header.insert(31, ('PROGID', cubeheader['PROGID'], 'IRS Program ID'))
+        
         mom0_hdu = fits.PrimaryHDU(data=mom0_data, header=mom0_header)
         mom0_hdu.writeto(mapfile, overwrite=True)
         

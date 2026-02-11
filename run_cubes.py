@@ -55,6 +55,8 @@ run_name = inputs['run_name']
 if not os.path.exists(runpath+run_name):
     os.mkdir(runpath+run_name)
 
+simlaver = inputs['simla_version']
+
 # Copy the run inputs into the new directory
 os.system('cp '+simlapath+'run_inputs.txt '+runpath+run_name+'/used_run_inputs.txt')
 
@@ -190,8 +192,8 @@ def run_cubes_in_progid(progid):
 
                     try:
                         # Save the non-cube deliverable data products
-                        cube.make_dark_mask()
-                        cube.save_moment_zero_map()
+                        cube.make_dark_mask(simlaver=simlaver)
+                        cube.save_moment_zero_map(simlaver=simlaver)
                         cube.save_spectrum()
                     except Exception as e:
                         log_queue.put(str(datetime.datetime.now())+': error saving non-cube deliverable products for AORKEY='+\
