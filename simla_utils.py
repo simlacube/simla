@@ -36,6 +36,7 @@ def run_inputs_loader(inputfile):
             splitter = i.split('=')
             var, ip = splitter[0].replace(' ',''), splitter[1].replace(' ','')
             if var == 'run_name': ip = str(ip).replace('\n', '')
+            elif var == 'simla_version': ip = str(ip).replace('\n', '')
             elif var == 'min_shard_depth': ip = int(ip)
             else: ip = float(ip)
             out_dict[var] = ip
