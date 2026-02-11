@@ -24,6 +24,7 @@ import glob
 import pandas as pd
 from astropy.io import fits
 from multiprocessing import Pool, Process, Queue
+from tqdm import tqdm
 
 from simladb import query, DB_bcd
 from simla_variables import SimlaVar
@@ -52,6 +53,9 @@ inputs = run_inputs_loader(simlapath+'run_inputs.txt')
 
 # Set up the run directories
 run_name = inputs['run_name']
+if not os.path.exists(runpath+run_name):
+    os.mkdir(runpath+run_name)
+
 productpath = runpath+run_name+'/products/'
 ancillarypath = runpath+run_name+'/ancillary/'
 if not os.path.exists(productpath):
@@ -205,34 +209,35 @@ def run_cubes_in_progid(progid):
                         cube.make_dark_mask(simlaver=simlaver)
                         cube.save_moment_zero_map(simlaver=simlaver)
                         cube.save_spectrum()
+                        # if chnlnum == 0: cube.save_spectrum(specfile=prod_aorpath+savename.replace('_cube.fits', '_spec.tbl'), cubefile=None)
                     except Exception as e:
                         log_queue.put(str(datetime.datetime.now())+': error saving non-cube deliverable products for AORKEY='+\
                                       str(aorkey)+'. Error: '+str(e))
                         continue
 
                     try:
-                        qa_savename_template = anc_aorpath+savename.replace('.fits', '')
+                        qa_savename_template = anc_aorpath+savename.replace('_cube.fits', '')
                         
                         # Create the quality assurance PDF
-                        darkmask = fits.getdata(cube.savename.replace('.fits', '_darkmask.fits'))
+                        darkmask = fits.getdata(cube.savename.replace('_cube.fits', '_darkmask.fits'))
                         brightmask = np.where(darkmask==0, 1, 0)
                         
-                        cube.save_spectrum(specfile=qa_savename_template+'_darkspec.dat', \
+                        cube.save_spectrum(specfile=qa_savename_template+'_darkspec.tbl', \
                                            mask=darkmask)
-                        cube.save_spectrum(specfile=qa_savename_template+'_brightspec.dat', \
+                        cube.save_spectrum(specfile=qa_savename_template+'_brightspec.tbl', \
                                            mask=brightmask)
                         
                         if chnlnum == 0:
-                            cube.save_spectrum(cubefile=cube.savename.replace('.fits', '_iocorr.fits'), \
-                                               specfile=qa_savename_template+'_iocorr-darkspec.dat', \
+                            cube.save_spectrum(cubefile=cube.savename.replace('_cube.fits', '-iocorr.fits'), \
+                                               specfile=qa_savename_template+'_darkspec-iocorr.tbl', \
                                                mask=darkmask)
-                            cube.save_spectrum(cubefile=cube.savename.replace('.fits', '_iocorr.fits'), \
-                                               specfile=qa_savename_template+'_iocorr-brightspec.dat', \
+                            cube.save_spectrum(cubefile=cube.savename.replace('_cube.fits', '-iocorr.fits'), \
+                                               specfile=qa_savename_template+'_brightspec-iocorr.tbl', \
                                                mask=brightmask)
                             qa_iocorr = True
                         else: qa_iocorr = False
 
-                        generate_QA_form(cube.savename, qa_savename_template+'_QAplots.pdf', \
+                        generate_QA_form(cube.savename, anc_aorpath, qa_savename_template+'_QAplots.pdf', \
                                          iocorr_spectra=qa_iocorr)
 
                     except Exception as e:
@@ -259,11 +264,11 @@ if __name__ == '__main__':
     log_queue = Queue()
     logger = Process(target=write_log, args=(log_queue,))
     logger.start()
-    
-    with Pool(processes=SimlaVar().processors, initializer=init_worker, initargs=(log_queue,)) as pool: 
-        for _ in pool.imap_unordered(run_cubes_in_progid, ps):
-            pass
 
+    with Pool(processes=SimlaVar().processors, initializer=init_worker, initargs=(log_queue,)) as pool: 
+        for _ in tqdm(pool.imap_unordered(run_cubes_in_progid, ps), total=len(ps)):
+            pass
+    
     log_queue.put(str(datetime.datetime.now())+': compiling cube stats CSV.')
     statsfiles = glob.glob(ancillarypath+'/**/**/**/*stats.csv')
     master_csv = pd.concat((pd.read_csv(f) for f in statsfiles), ignore_index=True)
@@ -274,5 +279,3 @@ if __name__ == '__main__':
 
     log_queue.put(None)
     logger.join()
-
-    

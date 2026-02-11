@@ -725,7 +725,7 @@ class bcd_spectrum:
 
         return wavelengths[final_mask], fluxes[final_mask]
 
-def generate_QA_form(cube_filename, pdf_savename, iocorr_spectra=False):
+def generate_QA_form(cube_filename, ancillary_dir, pdf_savename, iocorr_spectra=False):
 
     '''
     Generate a PDF file that contains high-level plots that are useful
@@ -738,25 +738,29 @@ def generate_QA_form(cube_filename, pdf_savename, iocorr_spectra=False):
         - save_spectrum
 
     For the spectra, save_spectrum should have run such that there is a 
-    *_darkspec.dat, *_brighspec.dat, and corresponding files if there are 
+    *_darkspec.tbl, *_brighspec.tbl, and corresponding files if there are 
     IO versions.
 
     cube_filename: (str) the file name of the SIMLA cube for QA.
+    ancillary_dir: (str) directory containing the ancillary extracted spectra
     pdf_savename: (str) the name of the file to save the PDF to.
     iocorr_spectra: (bool) whether to extract and show the IO corrected spectra.
 
     '''
 
-    def spectrumplot(cube_filename, iocorr_spectra=False):
+    def spectrumplot(cube_filename, ancillary_dir, iocorr_spectra=False):
     
         fig, axs = plt.subplots(2, 1, figsize=(15, 14))
-    
-        darkfile = cube_filename.replace('.fits', '_darkspec.dat')
-        brightfile = cube_filename.replace('.fits', '_brightspec.dat')
+
+        cubename = cube_filename.split('/')[-1]
+        convert_name = ancillary_dir+cubename
+        
+        darkfile = convert_name.replace('_cube.fits', '_darkspec.tbl')
+        brightfile = convert_name.replace('_cube.fits', '_brightspec.tbl')
     
         if iocorr_spectra:
-            darkfile_io = cube_filename.replace('.fits', '_iocorr-darkspec.dat')
-            brightfile_io = cube_filename.replace('.fits', '_iocorr-brightspec.dat')
+            darkfile_io = convert_name.replace('_cube.fits', '_darkspec-iocorr.tbl')
+            brightfile_io = convert_name.replace('_cube.fits', '_brightspec-iocorr.tbl')
     
         def plotter(filename, kind):
     
@@ -774,7 +778,7 @@ def generate_QA_form(cube_filename, pdf_savename, iocorr_spectra=False):
                 'On Source IO Corrected': [axs[0]],
             }[kind]
     
-            l, f, u = np.genfromtxt(filename).T
+            l, f, u = np.genfromtxt(filename, skip_header=4).T
     
             for ax in axes:
                 ax.step(l, f, where='mid', color=color, label=kind)
@@ -804,7 +808,7 @@ def generate_QA_form(cube_filename, pdf_savename, iocorr_spectra=False):
     def whitelightplot(cube_filename):
     
         fig, axs = plt.subplots(1, 1)
-        mom0 = fits.getdata(cube_filename.replace('.fits', '_mom0.fits'))
+        mom0 = fits.getdata(cube_filename.replace('_cube.fits', '_mom0.fits'))
         vmin, vmax = np.nanpercentile(mom0, [10, 90])
         im = plt.imshow(mom0, vmin=vmin, vmax=vmax, origin='lower', cmap='plasma')
         plt.title('Moment 0 Map')
@@ -868,7 +872,7 @@ def generate_QA_form(cube_filename, pdf_savename, iocorr_spectra=False):
         return fig
 
     pdf = PdfPages(pdf_savename)
-    s = spectrumplot(cube_filename, iocorr_spectra).savefig(pdf, format='pdf', bbox_inches='tight')
+    s = spectrumplot(cube_filename, ancillary_dir, iocorr_spectra).savefig(pdf, format='pdf', bbox_inches='tight')
     plt.close()
     m = whitelightplot(cube_filename).savefig(pdf, format='pdf', bbox_inches='tight')
     plt.close()

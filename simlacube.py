@@ -411,12 +411,12 @@ class SimlaCube:
         Run the IDL code by C. Starkey to remove the inter-order artifact from SL cubes.
 
         iocorr_savename: (str or None) the file name to save the IO-corrected cube to.
-                        If None, it is saved with an automatically generated name next to the cube (_iocorr.fits).
+                        If None, it is saved with an automatically generated name next to the cube (-iocorr.fits).
         
         '''
 
         if iocorr_savename is None:
-            iocorr_savename = self.savename.replace('_cube.fits', '_iocorr.fits')
+            iocorr_savename = self.savename.replace('_cube.fits', '-iocorr.fits')
 
         IDL.run('.RESET_SESSION')
         IDL.run('cd, "'+simlapath+'sl_io_correct"')
@@ -438,8 +438,10 @@ class SimlaCube:
 
         cubismpath = SimlaVar().cubismpath
 
-        cpjpath = self.savename.replace('.fits', '.cpj')
+        cpjpath = self.cpjname
+
         bplpath = self.savename.replace('_cube.fits', '.bpl')
+        if move_to is not None: bplpath = move_to+bplpath.split('/')[-1]
 
         IDL.run('.RESET_SESSION')
         IDL.cpjpath = cpjpath
@@ -449,9 +451,7 @@ class SimlaCube:
 
         if move_to is not None:
             new_cpjpath = move_to+cpjpath.split('/')[-1]
-            new_bplpath = move_to+bplpath.split('/')[-1]
             os.system('mv '+cpjpath+' '+new_cpjpath)
-            os.system('mv '+bplpath+' '+new_bplpath)
 
         if delete_cpj:
             if move_to is None: os.remove(cpjpath)
@@ -527,7 +527,7 @@ class SimlaCube:
         pd.DataFrame([{
             'CUBE_AORKEY': self.AORKEY,
             'CUBE_CHNLNUM': self.CHNLNUM,
-            'CUBE_SUBORDER': self.suborder,x
+            'CUBE_SUBORDER': self.suborder,
             'CUBE_RAMPTIME': self.RAMPTIME,
             'MAP_PLY': self.map_ply,
             'CUBE_MEAN_MJD': self.MJD_mean,
@@ -698,7 +698,8 @@ class SimlaCube:
 
         # Save to FITS
         overlap_header = cube_wcs.to_header()
-        
+
+        cubeheader = loadcube[0].header
         overlap_header.insert(26, ('SIMLAVER', simlaver, 'SIMLA pipeline version'))
         overlap_header.insert(27, ('AORKEY', int(cubeheader['AORKEY']), 'IRS area obeservation request key'))
         overlap_header.insert(28, ('CHNLNUM', cubeheader['CHNLNUM'], 'IRS channel: 0=SL, 1=SH, 2=LL, 3=LH'))
@@ -804,4 +805,5 @@ class SimlaCube:
         
         if specfile is None: specfile = cubefile.replace('_cube.fits', '_spec.tbl')
         table_data.write(specfile, format='ipac', overwrite=True)
+
 
