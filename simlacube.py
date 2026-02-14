@@ -346,12 +346,12 @@ class SimlaCube:
             self.used_shard_data = {'AORKEY': aorkeys, 'DCEID': dceids, 'SUBORDER': suborders, 'SHARD': shardids}
 
             # Save stats
-            self.bg_mean_deltatime = np.nanmean(np.abs(mjds-self.MJD_mean))
-            self.bg_mean_deltazodi = np.nanmean(np.abs(zodis-self.ZODI_12))
+            self.bg_mean_deltatime = round(np.nanmean(np.abs(mjds-self.MJD_mean)), 5)
+            self.bg_mean_deltazodi = round(np.nanmean(np.abs(zodis-self.ZODI_12)), 2)
             self.bg_n_sameaor = np.sum(np.where(aorkeys==self.AORKEY, 1, 0))
             self.bg_n_otheraor = np.sum(np.where(aorkeys!=self.AORKEY, 1, 0))
             self.bg_mean_judge_agreement = np.nanmean(judge1s/judge2s)
-            self.mean_background_rank = np.mean([int(i) for i in self.background_rank])
+            self.mean_background_rank = round(np.mean([int(i) for i in self.background_rank]), 2)
 
         else:
 
@@ -363,11 +363,12 @@ class SimlaCube:
             self.used_shard_data = {'AORKEY': np.asarray([]), 'DCEID': np.asarray([]), \
                                     'SUBORDER': np.asarray([]), 'SHARD': np.asarray([])}
 
-            self.bg_mean_deltazodi = np.nan
-            self.bg_mean_deltatime = np.nan
-            self.bg_n_sameaor = np.nan
-            self.bg_n_otheraor = np.nan
+            self.bg_mean_deltazodi = 'N/A'
+            self.bg_mean_deltatime = 'N/A'
+            self.bg_n_sameaor = 'N/A'
+            self.bg_n_otheraor = 'N/A'
             self.bg_mean_judge_agreement = np.nan
+            self.mean_background_rank = np.mean([int(i) for i in self.background_rank])
 
     def build_cube(self, suborder, savename, autobp=True, no_data=True, simlaver='-1'):
 
@@ -465,9 +466,9 @@ class SimlaCube:
             'IOCORR', 
         ]
         values = [
-            simlaver, round(self.MJD_mean, 5), self.SLITLIKE, self.CLASSPER, self.CLASSPAR, \
+            simlaver, self.MJD_mean, self.SLITLIKE, self.CLASSPER, self.CLASSPAR, \
             len(self.dceids), self.ZODI_12, self.ISM_12, self.mean_background_rank, \
-            round(self.bg_mean_deltazodi, 2), round(self.bg_mean_deltatime, 5), self.bg_n_sameaor, \
+            self.bg_mean_deltazodi, self.bg_mean_deltatime, self.bg_n_sameaor, \
             self.bg_n_otheraor, False,
         ]
         comments = [
@@ -605,8 +606,8 @@ class SimlaCube:
             'ZODI_12um': self.ZODI_12,
             'ISM_12um': self.ISM_12,
             'N_BCDS': len(self.dceids),
-            'PERCLASS': self.PERCLASS, 
-            'PARCLASS': self.PARCLASS,
+            'CLASSPER': self.CLASSPER, 
+            'CLASSPAR': self.CLASSPAR,
             'MEAN_RA': self.ref_coords[0],
             'MEAN_DEC': self.ref_coords[1],
             'OBJNAME': self.IRS_object_name,
@@ -715,42 +716,46 @@ class SimlaCube:
             # by that shard
             overlap_cube = []
             for shard in corners:
+
+                try:
         
-                image_xsize = cube_data[0].shape[1]
-                image_ysize = cube_data[0].shape[0]
-                overlap_map = np.zeros_like(cube_data[0])
-    
-                # Pixel region of the shard
-                pixel_region = []
-                for p in shard:
-                    sky_c = SkyCoord(p[0], p[1], unit='deg')
-                    pixel_p = astropy.wcs.utils.skycoord_to_pixel(sky_c, cube_wcs)
-                    pixel_region.append([pixel_p[0], pixel_p[1]])
-                region_polygon = Polygon(pixel_region)
-                
-                # Narrow down the clipping area
-                xs = [i[0] for i in pixel_region]
-                ys = [i[1] for i in pixel_region]
-                maxx = int(np.ceil(np.max(xs) + 1))
-                minx = int(np.floor(np.min(xs) - 1))
-                maxy = int(np.ceil(np.max(ys) + 1))
-                miny = int(np.floor(np.min(ys) - 1))
-                coords_to_check = [[x, y]
-                                  for x in np.arange(minx, maxx) if 0 <= x <= image_xsize
-                                  for y in np.arange(miny, maxy) if 0 <= y <= image_ysize]
-    
-                for i in coords_to_check:
-                    try:
-                        x, y = i[0], i[1]
-                        p = Point(x, y)
-                        if region_polygon.exterior.distance(p) >= np.sqrt(2)/2 and region_polygon.contains(p):
-                            overlap_map[y, x] = 1.0
-                        elif region_polygon.exterior.distance(p) <= np.sqrt(2)/2:
-                            normalized_overlap = clip_pixel(x, y)
-                            overlap_map[y, x] = normalized_overlap
-                    except IndexError: pass # Handles regions larger than the cube
+                    image_xsize = cube_data[0].shape[1]
+                    image_ysize = cube_data[0].shape[0]
+                    overlap_map = np.zeros_like(cube_data[0])
         
-                overlap_cube.append(overlap_map)
+                    # Pixel region of the shard
+                    pixel_region = []
+                    for p in shard:
+                        sky_c = SkyCoord(p[0], p[1], unit='deg')
+                        pixel_p = astropy.wcs.utils.skycoord_to_pixel(sky_c, cube_wcs)
+                        pixel_region.append([pixel_p[0], pixel_p[1]])
+                    region_polygon = Polygon(pixel_region)
+                    
+                    # Narrow down the clipping area
+                    xs = [i[0] for i in pixel_region]
+                    ys = [i[1] for i in pixel_region]
+                    maxx = int(np.ceil(np.max(xs) + 1))
+                    minx = int(np.floor(np.min(xs) - 1))
+                    maxy = int(np.ceil(np.max(ys) + 1))
+                    miny = int(np.floor(np.min(ys) - 1))
+                    coords_to_check = [[x, y]
+                                      for x in np.arange(minx, maxx) if 0 <= x <= image_xsize
+                                      for y in np.arange(miny, maxy) if 0 <= y <= image_ysize]
+        
+                    for i in coords_to_check:
+                        try:
+                            x, y = i[0], i[1]
+                            p = Point(x, y)
+                            if region_polygon.exterior.distance(p) >= np.sqrt(2)/2 and region_polygon.contains(p):
+                                overlap_map[y, x] = 1.0
+                            elif region_polygon.exterior.distance(p) <= np.sqrt(2)/2:
+                                normalized_overlap = clip_pixel(x, y)
+                                overlap_map[y, x] = normalized_overlap
+                        except IndexError: pass # Handles regions larger than the cube
+            
+                    overlap_cube.append(overlap_map)
+
+                except: overlap_cube.append(np.ones_like(cube_data[0])*np.nan)
 
             # assign a pixel as dark if it was *only* touched by dark shards
             main_overlap_cube = []
