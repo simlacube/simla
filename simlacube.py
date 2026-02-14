@@ -416,7 +416,7 @@ class SimlaCube:
         self.cpjname = fixname_cpj
 
         # Update the headers
-        self.update_cube_header(simlaver=simlaver)
+        # self.update_cube_header(simlaver=simlaver)
 
     def run_sl_io_correct(self, iocorr_savename=None):
 
@@ -621,7 +621,13 @@ class SimlaCube:
     
         '''
         Creates a pixel mask for a SIMLA cube corresponding to same-AOR 
-        shards used in the background.
+        shards used in the background. Dark pixels in this mask have been 
+        touched *only* by dark shards.
+
+        NOTE: since we determine whether a pixel is dark based upon whether
+        it is in a dark shard, the spatial-direction edges of the darkmask
+        are trunated by a pixel relative to the cube footprint. This is probably
+        because of the edge-trimming that we did for the shards.
 
         savefile: (str or None) specify the save name for the map FITS file. 
                      If None, it is saved with an automatically generated name next to the cube (_darkmask.fits).
@@ -646,35 +652,35 @@ class SimlaCube:
         
         cube_aor, chnlnum = int(loadcube[0].header['AORKEY']), int(loadcube[0].header['CHNLNUM'])
         
-        s_aors, s_dceids, s_ids = [], [], []
+        d_aors, d_dceids, d_ids = [], [], []
         for d in sorted(np.unique(self.used_shard_data['DCEID'])):
-            s_aors.append(self.used_shard_data['AORKEY'][np.where(self.used_shard_data['DCEID']==d)][0])
-            s_dceids.append(d)
-            s_ids.append(str(sorted(self.used_shard_data['SHARD'][np.where((self.used_shard_data['DCEID']==d) & \
+            d_aors.append(self.used_shard_data['AORKEY'][np.where(self.used_shard_data['DCEID']==d)][0])
+            d_dceids.append(d)
+            d_ids.append(str(sorted(self.used_shard_data['SHARD'][np.where((self.used_shard_data['DCEID']==d) & \
                                                                            (self.used_shard_data['SUBORDER']==suborder))])))
-        s_aors, s_dceids, s_ids = np.asarray(s_aors), np.asarray(s_dceids), np.asarray(s_ids)
+        d_aors, d_dceids, d_ids = np.asarray(d_aors), np.asarray(d_dceids), np.asarray(d_ids)
         
         # reformat
-        s_ids_reform, s_aors_reform, s_dceids_reform = [], [], []
-        for i in range(len(s_ids)):
-            idlist = np.asarray(ast.literal_eval(s_ids[i]))
+        d_ids_reform, d_aors_reform, d_dceids_reform = [], [], []
+        for i in range(len(d_ids)):
+            idlist = np.asarray(ast.literal_eval(d_ids[i]))
             if len(idlist) > 0:
-                s_ids_reform.extend(idlist)
-                s_aors_reform.extend(s_aors[i]*np.ones_like(idlist))
-                s_dceids_reform.extend(s_dceids[i]*np.ones_like(idlist))
-        s_ids, s_aors, s_dceids = \
-            np.asarray(s_ids_reform), np.asarray(s_aors_reform), np.asarray(s_dceids_reform)
+                d_ids_reform.extend(idlist)
+                d_aors_reform.extend(d_aors[i]*np.ones_like(idlist))
+                d_dceids_reform.extend(d_dceids[i]*np.ones_like(idlist))
+        d_ids, d_aors, d_dceids = \
+            np.asarray(d_ids_reform), np.asarray(d_aors_reform), np.asarray(d_dceids_reform)
     
-        s_ids = s_ids.astype(int)
-        s_aors = s_aors.astype(int)
-        s_dceids = s_dceids.astype(int)
+        d_ids = d_ids.astype(int)
+        d_aors = d_aors.astype(int)
+        d_dceids = d_dceids.astype(int)
     
-        # Get the shards from this AOR
-        m_aor = np.where(s_aors==cube_aor)
-        s_dceids, s_ids = s_dceids[m_aor], s_ids[m_aor]
-        s_pairs = np.asarray([s_dceids, s_ids]).T.tolist()
+        # Get the dark shards from this AOR
+        m_aor = np.where(d_aors==cube_aor)
+        d_dceids, d_ids = d_dceids[m_aor], d_ids[m_aor]
+        d_pairs = np.asarray([d_dceids, d_ids]).T.tolist()
 
-        if len(s_dceids) > 0:
+        if len(d_dceids) > 0:
             
             # Query the DB for the shard corners of dark shards
             q = query(simladbX.select(*scorners, DB_shardpos.DCEID, DB_shardpos.SHARD) \
@@ -683,25 +689,9 @@ class SimlaCube:
             corners, q_dceids, q_ids = \
                 fmt_scorners(q), q['DCEID'].to_numpy(), q['SHARD'].to_numpy()
             q_pairs = np.asarray([q_dceids, q_ids]).T.tolist()
-        
-            bg_mask = np.asarray([1 if i in s_pairs else 0 for i in q_pairs])
-            corners = corners[np.where(bg_mask)]
-        
-            # Take a representative slice of the cube for pixel grid
-            # and sub-sample it
-            scale = 10 # IMPORTANT: pixels will be evaluated as in dark shards after being 
-                       # scaled up by this amount (and then scaled back down)
-            pixgrid = zoom(cube_data[0], zoom=scale)
-        
-            # Resize the WCS
-            pixgrid_wcs = WCS(loadcube[0].header, fobj=fits.open(cube_file), naxis=2)
-            pixgrid_wcs = WCS(pixgrid_wcs.to_header())
-            pixgrid_wcs.wcs.crpix = pixgrid_wcs.wcs.crpix*scale 
-            pixgrid_wcs.wcs.cdelt = pixgrid_wcs.wcs.cdelt/scale
-            pixgrid_wcs.array_shape = (
-                    int(pixgrid.shape[0] * scale),
-                    int(pixgrid.shape[1] * scale),
-                )
+
+            # 1 if the shard was used in the BG, otherwise 0
+            use_mask = np.asarray([1 if i in d_pairs else 0 for i in q_pairs])
         
             def clip_pixel(x, y):
         
@@ -720,54 +710,54 @@ class SimlaCube:
                 
                 return normalized_overlap
         
-            # Loop through each shard region and get the overlap maps
+            # Loop through each shard region and see whether each pixel was touched 
+            # by that shard
             overlap_cube = []
             for shard in corners:
         
-                try:
+                image_xsize = cube_data[0].shape[1]
+                image_ysize = cube_data[0].shape[0]
+                overlap_map = np.zeros_like(cube_data[0])
+    
+                # Pixel region of the shard
+                pixel_region = []
+                for p in shard:
+                    sky_c = SkyCoord(p[0], p[1], unit='deg')
+                    pixel_p = astropy.wcs.utils.skycoord_to_pixel(sky_c, cube_wcs)
+                    pixel_region.append([pixel_p[0], pixel_p[1]])
+                region_polygon = Polygon(pixel_region)
+                
+                # Narrow down the clipping area
+                xs = [i[0] for i in pixel_region]
+                ys = [i[1] for i in pixel_region]
+                maxx = int(np.ceil(np.max(xs) + 1))
+                minx = int(np.floor(np.min(xs) - 1))
+                maxy = int(np.ceil(np.max(ys) + 1))
+                miny = int(np.floor(np.min(ys) - 1))
+                coords_to_check = [[x, y]
+                                  for x in np.arange(minx, maxx) if 0 <= x <= image_xsize
+                                  for y in np.arange(miny, maxy) if 0 <= y <= image_ysize]
+    
+                for i in coords_to_check:
+                    try:
+                        x, y = i[0], i[1]
+                        p = Point(x, y)
+                        if region_polygon.exterior.distance(p) >= np.sqrt(2)/2 and region_polygon.contains(p):
+                            overlap_map[y, x] = 1.0
+                        elif region_polygon.exterior.distance(p) <= np.sqrt(2)/2:
+                            normalized_overlap = clip_pixel(x, y)
+                            overlap_map[y, x] = normalized_overlap
+                    except IndexError: pass # Handles regions larger than the cube
         
-                    image_xsize = pixgrid.shape[1]
-                    image_ysize = pixgrid.shape[0]
-                    overlap_map = np.zeros_like(pixgrid)
-        
-                    # Pixel region of the shard
-                    pixel_region = []
-                    for p in shard:
-                        sky_c = SkyCoord(p[0], p[1], unit='deg')
-                        pixel_p = astropy.wcs.utils.skycoord_to_pixel(sky_c, pixgrid_wcs)
-                        pixel_region.append([pixel_p[0], pixel_p[1]])
-                    region_polygon = Polygon(pixel_region)
-                    
-                    # Narrow down the clipping area
-                    xs = [i[0] for i in pixel_region]
-                    ys = [i[1] for i in pixel_region]
-                    maxx = int(np.ceil(np.max(xs) + 1))
-                    minx = int(np.floor(np.min(xs) - 1))
-                    maxy = int(np.ceil(np.max(ys) + 1))
-                    miny = int(np.floor(np.min(ys) - 1))
-                    coords_to_check = [[x, y]
-                                      for x in np.arange(minx, maxx) if 0 <= x <= image_xsize
-                                      for y in np.arange(miny, maxy) if 0 <= y <= image_ysize]
-        
-                    for i in coords_to_check:
-                        try:
-                            x, y = i[0], i[1]
-                            p = Point(x, y)
-                            if region_polygon.exterior.distance(p) >= np.sqrt(2)/2 and region_polygon.contains(p):
-                                overlap_map[y, x] = 1.0
-                            elif region_polygon.exterior.distance(p) <= np.sqrt(2)/2:
-                                normalized_overlap = clip_pixel(x, y)
-                                overlap_map[y, x] = normalized_overlap
-                        except IndexError: pass # Handles regions larger than the cube
-            
-                    overlap_cube.append(overlap_map)
-        
-                except: overlap_cube.append(np.ones_like(pixgrid)*np.nan)
-        
-            main_overlap_map = np.max(overlap_cube, axis=0)
-            main_overlap_map = np.where(main_overlap_map==1, 1, 0)
-        
-            main_overlap_map = zoom(main_overlap_map, zoom=1/scale)
+                overlap_cube.append(overlap_map)
+
+            # assign a pixel as dark if it was *only* touched by dark shards
+            main_overlap_cube = []
+            for i in range(len(overlap_cube)):
+                main_overlap_cube.append(np.where(overlap_cube[i]>0, use_mask[i], np.nan)) # placeholder must be nan
+            main_overlap_cube = np.asarray(main_overlap_cube)
+            main_overlap_map = np.nanmin(main_overlap_cube, axis=0)
+            # with min, a pixel can only be 1 if it is 1 for all shards
 
         else: main_overlap_map = np.zeros_like(cube_data[0])
 
