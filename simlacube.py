@@ -416,7 +416,7 @@ class SimlaCube:
         self.cpjname = fixname_cpj
 
         # Update the headers
-        # self.update_cube_header(simlaver=simlaver)
+        self.update_cube_header(simlaver=simlaver)
 
     def run_sl_io_correct(self, iocorr_savename=None):
 
@@ -457,7 +457,7 @@ class SimlaCube:
                 header.insert(istart+2+i, (keywords[i], values[i], comments[i]))
             header.insert(istart+len(keywords)+2, ('', ''))
             return header
-        
+
         keywords = [
             'SIMLAVER', 'MEAN_MJD', 'SLITLIKE', 'CLASSPER', 'CLASSPAR', 'N_BCDS', 
             'ZODI12UM', 'ISM12UM', 
@@ -490,15 +490,16 @@ class SimlaCube:
         if not iocorr: savename = self.savename
         elif iocorr: savename = self.savename.replace('.fits', '-iocorr.fits')
         
-        cube_header, cube_data = fits.getheader(savename), fits.getdata(savename)
-        cube_header = update_header(cube_header, keywords, values, comments)
+        cube_hdul = fits.open(savename)
+        cube_header = update_header(cube_hdul[0].header, keywords, values, comments)
         if iocorr: cube_header['IOCORR'] = True
-        fits.writeto(savename, cube_data, cube_header, overwrite=True)
+        cube_hdul.writeto(savename, overwrite=True)
 
         uncname = savename.replace('.fits', '_unc.fits')
-        unc_header, unc_data = fits.getheader(uncname), fits.getdata(uncname)
+        unc_hdul = fits.open(uncname)
+        unc_header = update_header(unc_hdul[0].header, keywords, values, comments)
         if iocorr: unc_header['IOCORR'] = True
-        fits.writeto(uncname, unc_data, unc_header, overwrite=True)
+        unc_hdul.writeto(uncname, overwrite=True)
 
     def save_cpj_params(self, delete_cpj=False, move_to=None):
 
@@ -648,7 +649,7 @@ class SimlaCube:
         # Load in the cube and shardlist
         loadcube = fits.open(cube_file)
         cube_data = loadcube[0].data
-        cube_wcs = WCS(loadcube[0].header, fobj=fits.open(cube_file), naxis=2)
+        cube_wcs = WCS(loadcube[0].header, fobj=loadcube, naxis=2)
         
         cube_aor, chnlnum = int(loadcube[0].header['AORKEY']), int(loadcube[0].header['CHNLNUM'])
         
