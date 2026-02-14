@@ -57,6 +57,28 @@ class SimlaCube:
         self.ISM_12 = np.unique(q['ISM_12'].to_numpy())[0]
         self.ref_coords = (np.nanmean(q['RA_FOV'].to_numpy()), np.nanmean(q['DEC_FOV'].to_numpy()))
 
+        header0 = fits.getheader(self.bcd_file_names[0])
+        length = [57, None, 168][self.CHNLNUM]
+        width = [3.7, None, 10.7][self.CHNLNUM]
+
+        # Assign a classification based on step size sampling
+        # class 1 = has some pixel redundancy 
+        # class 2 = no redundancy but no separation
+        # class 3 = separation between steps
+        percalc = header0['SIZEPER']/width
+        if percalc < 1: self.CLASSPER = 1
+        elif percalc == 1: self.CLASSPER = 2
+        elif percalc > 1: self.CLASSPER = 3
+
+        parcalc = header0['SIZEPAR']/length
+        if parcalc < 1: self.CLASSPAR = 1
+        elif parcalc == 1: self.CLASSPAR = 2
+        elif parcalc > 1: self.CLASSPAR = 3
+
+        # A "SLITLIKE" is a map that is set up like a staring mode observation
+        if self.STEPSPER == 1: self.SLITLIKE = True 
+        else: self.SLITLIKE = False
+
     def make_background(self, j1_cut=0.1, j2_cut=2, deltat=5, \
                         zodi_cut=5, ism_cut=0.5, sigma_cut=1.5, \
                         min_shard_depth=50):
@@ -329,6 +351,7 @@ class SimlaCube:
             self.bg_n_sameaor = np.sum(np.where(aorkeys==self.AORKEY, 1, 0))
             self.bg_n_otheraor = np.sum(np.where(aorkeys!=self.AORKEY, 1, 0))
             self.bg_mean_judge_agreement = np.nanmean(judge1s/judge2s)
+            self.mean_background_rank = np.mean([int(i) for i in self.background_rank])
 
         else:
 
@@ -346,7 +369,7 @@ class SimlaCube:
             self.bg_n_otheraor = np.nan
             self.bg_mean_judge_agreement = np.nan
 
-    def build_cube(self, suborder, savename, autobp=True, no_data=True):
+    def build_cube(self, suborder, savename, autobp=True, no_data=True, simlaver='-1'):
 
         '''
         Wrapper for lights-out IDL code for CUBISM.
@@ -356,11 +379,13 @@ class SimlaCube:
         savename: (str) the file to save the cube to. Requires ".fits" at the end.
         autobp: (bool) use CUBISM autobadpix?
         no_data: (bool) if False, the .cpj file with be saved with BCD data.
+        simlaver: (str) the version of the SIMLA run for the FITS header.
 
         '''
 
         self.savename = savename
         self.suborder = suborder
+        self.simlaver = simlaver
         
         IDL.run('.RESET_SESSION')
 
@@ -390,20 +415,8 @@ class SimlaCube:
         os.system('mv '+savename.replace('.fits', '_unc.cpj')+' '+fixname_cpj)
         self.cpjname = fixname_cpj
 
-        # # Remove the distortion keywords from the header
-        # header = fits.getheader(savename)
-        # dist_coeffs = [card.keyword for card in header.cards if \
-        #                card.comment == 'distortion coefficient']
-        # with fits.open(savename) as hdul:
-        #     for key in dist_coeffs:
-        #         del hdul[0].header[key]
-        #     del hdul[0].header['A_ORDER']
-        #     del hdul[0].header['B_ORDER']
-        #     del hdul[0].header['AP_ORDER']
-        #     del hdul[0].header['BP_ORDER']
-        #     del hdul[0].header['A_DMAX']
-        #     del hdul[0].header['B_DMAX']
-        #     hdul.writeto(savename, overwrite=True)
+        # Update the headers
+        self.update_cube_header(simlaver=simlaver)
 
     def run_sl_io_correct(self, iocorr_savename=None):
 
@@ -416,7 +429,7 @@ class SimlaCube:
         '''
 
         if iocorr_savename is None:
-            iocorr_savename = self.savename.replace('_cube.fits', '_cube-iocorr.fits')
+            iocorr_savename = self.savename.replace('.fits', '-iocorr.fits')
 
         IDL.run('.RESET_SESSION')
         IDL.run('cd, "'+simlapath+'sl_io_correct"')
@@ -424,6 +437,68 @@ class SimlaCube:
         IDL.cpjpath = self.cpjname
         IDL.run('sl_io_correct, cpjpath, save_location, /QUIET ')
         os.system('cd '+simlapath)
+
+        self.update_cube_header(simlaver=self.simlaver, iocorr=True)
+
+    def update_cube_header(self, simlaver='-1', iocorr=False):
+
+        '''
+        Once the cube FITS files have been saved, run this to update the headers
+
+        simlaver: (str) the version of the SIMLA run for the FITS header.
+        iocorr: (bool) whether this is an IO-corrected version of the cube.
+        '''
+
+        def update_header(header, keywords, values, comments):
+            istart = 37
+            header.insert(istart, ('', '  / SIMLA PIPELINE'))
+            header.insert(istart+1, ('', ''))
+            for i in range(len(keywords)):
+                header.insert(istart+2+i, (keywords[i], values[i], comments[i]))
+            header.insert(istart+len(keywords)+2, ('', ''))
+            return header
+        
+        keywords = [
+            'SIMLAVER', 'MEAN_MJD', 'SLITLIKE', 'CLASSPER', 'CLASSPAR', 'N_BCDS', 
+            'ZODI12UM', 'ISM12UM', 
+            'BG_RANK', 'BG_DZODI', 'BG_DTIME', 'BG_IN', 'BG_OUT',
+            'IOCORR', 
+        ]
+        values = [
+            simlaver, round(self.MJD_mean, 5), self.SLITLIKE, self.CLASSPER, self.CLASSPAR, \
+            len(self.dceids), self.ZODI_12, self.ISM_12, self.mean_background_rank, \
+            round(self.bg_mean_deltazodi, 2), round(self.bg_mean_deltatime, 5), self.bg_n_sameaor, \
+            self.bg_n_otheraor, False,
+        ]
+        comments = [
+            'SIMLA pipeline version',
+            '[days] Mean Mod. Julian Date across AOR',
+            'True if this cube is staring-mode like',
+            'Perpendicular pixel redundancy classification',
+            'Parallel pixel redundancy classification',
+            'Number of constituent BCDs in cube',
+            '[MJy/sr] model zodiacal intensity at 12 micron',
+            '[MJy/sr] model ISM intensity at 12 micron',
+            'Mean background rank (1=best, 4=worst)',
+            '[MJy/sr] mean delta zodi across used BG obs',
+            '[days] mean delta time across used BG obs',
+            'Number of BG shards from the cube AOR',
+            'Number of BG shards NOT from the cube AOR',
+            'True if this is IO signal-corrected (SL only)'
+        ]
+
+        if not iocorr: savename = self.savename
+        elif iocorr: savename = self.savename.replace('.fits', '-iocorr.fits')
+        
+        cube_header, cube_data = fits.getheader(savename), fits.getdata(savename)
+        cube_header = update_header(cube_header, keywords, values, comments)
+        if iocorr: cube_header['IOCORR'] = True
+        fits.writeto(savename, cube_data, cube_header, overwrite=True)
+
+        uncname = savename.replace('.fits', '_unc.fits')
+        unc_header, unc_data = fits.getheader(uncname), fits.getdata(uncname)
+        if iocorr: unc_header['IOCORR'] = True
+        fits.writeto(uncname, unc_data, unc_header, overwrite=True)
 
     def save_cpj_params(self, delete_cpj=False, move_to=None):
 
@@ -517,29 +592,29 @@ class SimlaCube:
                      If None, it is saved with an automatically generated name next to the cube (_stats.csv).        
 
         '''
-
-        ncycles = fits.getheader(self.bcd_file_names[0])['NCYCLES']
-        length = [57, None, 168][self.CHNLNUM]
-        width = [3.7, None, 10.7][self.CHNLNUM]
-        self.map_ply = ncycles*(width/self.STEPSPER)*(length/self.STEPSPAR)
         
         if statfile_name is None: statfile_name = self.savename.replace('_cube.fits', '_stats.csv')
         pd.DataFrame([{
-            'CUBE_AORKEY': self.AORKEY,
-            'CUBE_CHNLNUM': self.CHNLNUM,
-            'CUBE_SUBORDER': self.suborder,
-            'CUBE_RAMPTIME': self.RAMPTIME,
-            'MAP_PLY': self.map_ply,
-            'CUBE_MEAN_MJD': self.MJD_mean,
-            'CUBE_ZODI_12um': self.ZODI_12,
-            'CUBE_ISM_12um': self.ISM_12,
-            'CUBE_N_BCDS': len(self.dceids),
+            'AORKEY': self.AORKEY,
+            'CHNLNUM': self.CHNLNUM,
+            'SUBORDER': self.suborder,
+            'RAMPTIME': self.RAMPTIME,
+            'PROGID': self.PROGID,
+            'MEAN_MJD': self.MJD_mean,
+            'ZODI_12um': self.ZODI_12,
+            'ISM_12um': self.ISM_12,
+            'N_BCDS': len(self.dceids),
+            'PERCLASS': self.PERCLASS, 
+            'PARCLASS': self.PARCLASS,
+            'MEAN_RA': self.ref_coords[0],
+            'MEAN_DEC': self.ref_coords[1],
+            'OBJNAME': self.IRS_object_name,
             'BG_MEAN_DELTAZODI': self.bg_mean_deltazodi,
             'BG_MEAN_DELTATIME': self.bg_mean_deltatime,
             'BG_RANK': self.background_rank,
+            'BG_MEAN_RANK': self.mean_background_rank,
             'BG_N_SAMEAOR': self.bg_n_sameaor,
             'BG_N_OTHERAOR': self.bg_n_otheraor,
-            'BG_MEAN_JUDGE_AGREEMENT': self.bg_mean_judge_agreement,
         }]).to_csv(statfile_name)
 
     def make_dark_mask(self, savefile=None, simlaver='-1'):
@@ -805,3 +880,4 @@ class SimlaCube:
         
         if specfile is None: specfile = cubefile.replace('_cube.fits', '_spec.tbl')
         table_data.write(specfile, format='ipac', overwrite=True)
+

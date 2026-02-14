@@ -170,7 +170,8 @@ def run_cubes_in_progid(progid):
                         log_queue.put(str(datetime.datetime.now())+': building cube '+savename+'...')
 
                         # Now we actually make the cubes
-                        cube.build_cube(suborder=suborder, savename=prod_aorpath+savename, no_data=no_data)
+                        cube.build_cube(suborder=suborder, savename=prod_aorpath+savename, \
+                                        no_data=no_data, simlaver=simlaver)
                         end = time.time()
                         build_time = round((end-start), 1)
                         log_queue.put(str(datetime.datetime.now())+': successfully built '+savename+' in '+\
@@ -273,7 +274,7 @@ if __name__ == '__main__':
             pass
     
     log_queue.put(str(datetime.datetime.now())+': compiling cube stats CSV.')
-    statsfiles = glob.glob(ancillarypath+'/**/**/**/*stats.csv')
+    statsfiles = glob.glob(ancillarypath+'/**/**/*stats.csv')
     master_csv = pd.concat((pd.read_csv(f) for f in statsfiles), ignore_index=True)
     master_csv.to_csv(productpath+'/cube_stats.csvs', index=False)
 
