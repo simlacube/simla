@@ -133,22 +133,32 @@ def run_cubes_in_progid(progid):
             
             # If the map has multiple targets, need to make multiple cubes
             if cube.OBJTYPE == 'TargetMulti' or cube.OBJTYPE == 'TargetFixedCluster':
-                sample_header = fits.getheader(cube.bcd_file_names[0])
-                n_fovid = len(np.unique([fits.getheader(i)['FOVID'] for i in cube.bcd_file_names]))
-                nbcd_per_map = sample_header['STEPSPAR'] * sample_header['STEPSPER'] * n_fovid 
-                n_unique_bcds = len(cube.bcd_file_names) / sample_header['NCYCLES']
-                n_maps = int(n_unique_bcds / nbcd_per_map)
-                nbcd_per_map = nbcd_per_map * sample_header['NCYCLES']
-                sorted_bcds = sorted(cube.bcd_file_names)
+        
+                map_bcds = []
+                map_starting_bcd = 0
+                bcdlist = sorted(cube.bcd_file_names)
+                while map_starting_bcd < len(bcdlist):
+                
+                    header = fits.getheader(bcdlist[map_starting_bcd])
+                    expected_this_map = header['STEPSPAR'] * header['STEPSPER'] * header['NCYCLES']
+                    
+                    bcds_this_map = bcdlist[map_starting_bcd: map_starting_bcd+expected_this_map]
+                    map_bcds.append(bcds_this_map)
+                    
+                    map_starting_bcd = map_starting_bcd+expected_this_map
+
                 letters = list(string.ascii_uppercase)
                 cubelist, savenames = [], []
-                for mapnum in range(n_maps):
-                    bcds_in_map = sorted_bcds[mapnum*nbcd_per_map: (mapnum*nbcd_per_map)+nbcd_per_map]
+                for mapnum in range(len(map_bcds)):
+                    
                     subcube = copy.deepcopy(cube)
-                    subcube.bcd_file_names = np.asarray(bcds_in_map)
+                    subcube.multi_letter = letters[mapnum]
+                    subcube.bcd_file_names = np.asarray(map_bcds[mapnum])
                     savename = str(aorkey)+letters[mapnum]+'_'+mod
+                    
                     cubelist.append(subcube)
                     savenames.append(savename)
+                
             else: 
                 cubelist = [cube]
                 savenames = [str(aorkey)+'_'+mod]
@@ -276,7 +286,7 @@ if __name__ == '__main__':
     log_queue.put(str(datetime.datetime.now())+': compiling cube stats CSV.')
     statsfiles = glob.glob(ancillarypath+'/**/**/*stats.csv')
     master_csv = pd.concat((pd.read_csv(f) for f in statsfiles), ignore_index=True)
-    master_csv.to_csv(productpath+'/cube_stats.csvs', index=False)
+    master_csv.to_csv(productpath+'/cube_stats.csv', index=False)
 
     run_end = time.time()
     log_queue.put('Done! This run took '+str(round((run_end-run_start)/3600, 2))+'hrs to complete.')

@@ -57,6 +57,9 @@ class SimlaCube:
         self.ISM_12 = np.unique(q['ISM_12'].to_numpy())[0]
         self.ref_coords = (np.nanmean(q['RA_FOV'].to_numpy()), np.nanmean(q['DEC_FOV'].to_numpy()))
 
+        # target_multi only
+        self.multi_letter = 'N/A'
+
         header0 = fits.getheader(self.bcd_file_names[0])
         length = [57, None, 168][self.CHNLNUM]
         width = [3.7, None, 10.7][self.CHNLNUM]
@@ -597,27 +600,28 @@ class SimlaCube:
         
         if statfile_name is None: statfile_name = self.savename.replace('_cube.fits', '_stats.csv')
         pd.DataFrame([{
+            'OBJNAME': self.IRS_object_name,
+            'PROGID': self.PROGID,
             'AORKEY': self.AORKEY,
+            'TARGMULTI_KEY': self.multi_letter,
             'CHNLNUM': self.CHNLNUM,
             'SUBORDER': self.suborder,
-            'RAMPTIME': self.RAMPTIME,
-            'PROGID': self.PROGID,
-            'MEAN_MJD': self.MJD_mean,
-            'ZODI_12um': self.ZODI_12,
-            'ISM_12um': self.ISM_12,
-            'N_BCDS': len(self.dceids),
-            'CLASSPER': self.CLASSPER, 
-            'CLASSPAR': self.CLASSPAR,
             'MEAN_RA': self.ref_coords[0],
             'MEAN_DEC': self.ref_coords[1],
-            'OBJNAME': self.IRS_object_name,
+            'RAMPTIME': self.RAMPTIME,
+            'MEAN_MJD': round(self.MJD_mean, 5),
+            'ZODI_12um': self.ZODI_12,
+            'ISM_12um': self.ISM_12,
+            'N_BCDS': len(self.bcd_file_names),
+            'CLASSPER': self.CLASSPER, 
+            'CLASSPAR': self.CLASSPAR,
             'BG_MEAN_DELTAZODI': self.bg_mean_deltazodi,
             'BG_MEAN_DELTATIME': self.bg_mean_deltatime,
-            'BG_RANK': self.background_rank,
+            'BG_RANK': str(self.background_rank),
             'BG_MEAN_RANK': self.mean_background_rank,
-            'BG_N_SAMEAOR': self.bg_n_sameaor,
-            'BG_N_OTHERAOR': self.bg_n_otheraor,
-        }]).to_csv(statfile_name)
+            'BG_N_SAMEAOR': int(self.bg_n_sameaor),
+            'BG_N_OTHERAOR': int(self.bg_n_otheraor),
+        }]).to_csv(statfile_name, index=False)
 
     def make_dark_mask(self, savefile=None, simlaver='-1'):
     
