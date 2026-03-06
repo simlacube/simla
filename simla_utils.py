@@ -114,6 +114,28 @@ def wise_filename_to_coords(wfile):
         dec = -dec
     return ra, dec
 
+def name_conv(root_name, filetype):
+    '''
+    Given the root filename (AORKEY_SUBORDER), define and apply the naming convention
+    based on the file type.
+
+    Useful so as to not break the code so easily if the naming convention changes.
+    This is for delivered products only.
+
+    --- NOT CURRENTLY IMPLEMENTED ---
+    '''
+    nameend_dict = {
+        'cube': '_cube.fits',
+        'cube_unc': '_cube_unc.fits',
+        'cube-iocorr': '_cube-iocorr.fits',
+        'cube-iocorr_unc': '_cube-iocorr_unc.fits',
+        'mom0': '_mom0.fits',
+        'darkmask': '_darkmask.fits',
+        'spec': '_spec.tbl',
+        'spec-iocorr': '_spec-iocorr.tbl',
+    }
+    return root_name+nameend_dict[filetype]
+
 def angular_separation(coords1, coords2):
     '''
     Return the angular separation in degrees between a pair of coordinates.
@@ -876,8 +898,11 @@ def generate_QA_form(cube_filename, ancillary_dir, pdf_savename, iocorr_spectra=
     plt.close()
     m = whitelightplot(cube_filename).savefig(pdf, format='pdf', bbox_inches='tight')
     plt.close()
-    i = IRS_on_WISE(cube_filename).savefig(pdf, format='pdf', bbox_inches='tight')
-    plt.close()
+    try:
+        # Some cubes fail on this step
+        i = IRS_on_WISE(cube_filename).savefig(pdf, format='pdf', bbox_inches='tight')
+        plt.close()
+    except: pass
     pdf.close()
     
     return

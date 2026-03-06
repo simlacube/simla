@@ -58,29 +58,32 @@ class SimlaCube:
         self.ref_coords = (np.nanmean(q['RA_FOV'].to_numpy()), np.nanmean(q['DEC_FOV'].to_numpy()))
 
         # target_multi only
-        self.multi_letter = 'N/A'
+        self.multi_key = 'N/A'
 
         header0 = fits.getheader(self.bcd_file_names[0])
-        length = [57, None, 168][self.CHNLNUM]
-        width = [3.7, None, 10.7][self.CHNLNUM]
 
-        # Assign a classification based on step size sampling
-        # class 1 = has some pixel redundancy 
-        # class 2 = no redundancy but no separation
-        # class 3 = separation between steps
-        percalc = header0['SIZEPER']/width
-        if percalc < 1: self.CLASSPER = 1
-        elif percalc == 1: self.CLASSPER = 2
-        elif percalc > 1: self.CLASSPER = 3
+        try:
+            
+            length = [57, None, 168][self.CHNLNUM]
+            width = [3.7, None, 10.7][self.CHNLNUM]
+            
+            threshold = 0.1 # within this for MARGINAL
+            
+            spatial_overlap = 1-(header0['SIZEPAR']/length)
+            spectral_overlap = 1-(header0['SIZEPER']/width)
+            
+            if spatial_overlap < 0: self.SAMPSPAT = 'SPARSE'
+            elif 0 <= spatial_overlap <= threshold: self.SAMPSPAT = 'MARGINAL'
+            elif threshold < spatial_overlap: self.SAMPSPAT = 'ROBUST'
+            
+            if spectral_overlap < 0: self.SAMPSPEC = 'SPARSE'
+            elif 0 <= spectral_overlap <= threshold: self.SAMPSPEC = 'MARGINAL'
+            elif threshold < spectral_overlap: self.SAMPSPEC = 'ROBUST'
+            if header['STEPSPER'] == 1: sself.SAMPSPEC= 'SLIT'
 
-        parcalc = header0['SIZEPAR']/length
-        if parcalc < 1: self.CLASSPAR = 1
-        elif parcalc == 1: self.CLASSPAR = 2
-        elif parcalc > 1: self.CLASSPAR = 3
-
-        # A "SLITLIKE" is a map that is set up like a staring mode observation
-        if self.STEPSPER == 1: self.SLITLIKE = True 
-        else: self.SLITLIKE = False
+        except:
+            self.SAMPSPAT = 'N/A'
+            self.SAMPSPEC = 'N/A'
 
     def make_background(self, j1_cut=0.1, j2_cut=2, deltat=5, \
                         zodi_cut=5, ism_cut=0.5, sigma_cut=1.5, \
@@ -351,8 +354,8 @@ class SimlaCube:
             # Save stats
             self.bg_mean_deltatime = round(np.nanmean(np.abs(mjds-self.MJD_mean)), 5)
             self.bg_mean_deltazodi = round(np.nanmean(np.abs(zodis-self.ZODI_12)), 2)
-            self.bg_n_sameaor = np.sum(np.where(aorkeys==self.AORKEY, 1, 0))
-            self.bg_n_otheraor = np.sum(np.where(aorkeys!=self.AORKEY, 1, 0))
+            self.bg_n_sameaor = int(np.sum(np.where(aorkeys==self.AORKEY, 1, 0)))
+            self.bg_n_otheraor = int(np.sum(np.where(aorkeys!=self.AORKEY, 1, 0)))
             self.bg_mean_judge_agreement = np.nanmean(judge1s/judge2s)
             self.mean_background_rank = round(np.mean([int(i) for i in self.background_rank]), 2)
 
@@ -463,24 +466,23 @@ class SimlaCube:
             return header
 
         keywords = [
-            'SIMLAVER', 'MEAN_MJD', 'SLITLIKE', 'CLASSPER', 'CLASSPAR', 'N_BCDS', 
+            'SIMLAVER', 'SAMPSPAT', 'SAMPSPEC', 'N_BCDS', 'MEAN_MJD',
             'ZODI12UM', 'ISM12UM', 
             'BG_RANK', 'BG_DZODI', 'BG_DTIME', 'BG_IN', 'BG_OUT',
-            'IOCORR', 
+            'IOCORR', 'PTYPE',
         ]
         values = [
-            simlaver, self.MJD_mean, self.SLITLIKE, self.CLASSPER, self.CLASSPAR, \
-            len(self.dceids), self.ZODI_12, self.ISM_12, self.mean_background_rank, \
+            simlaver, self.SAMPSPAT, self.SAMPSPEC, \
+            len(self.dceids), round(self.MJD_mean, 5), self.ZODI_12, self.ISM_12, self.mean_background_rank, \
             self.bg_mean_deltazodi, self.bg_mean_deltatime, self.bg_n_sameaor, \
-            self.bg_n_otheraor, False,
+            self.bg_n_otheraor, False, 'CUBE',
         ]
         comments = [
             'SIMLA pipeline version',
-            '[days] Mean Mod. Julian Date across AOR',
-            'True if this cube is staring-mode like',
-            'Perpendicular pixel redundancy classification',
             'Parallel pixel redundancy classification',
+            'Perpendicular pixel redundancy classification',
             'Number of constituent BCDs in cube',
+            '[days] Mean Mod. Julian Date across AOR',
             '[MJy/sr] model zodiacal intensity at 12 micron',
             '[MJy/sr] model ISM intensity at 12 micron',
             'Mean background rank (1=best, 4=worst)',
@@ -488,7 +490,8 @@ class SimlaCube:
             '[days] mean delta time across used BG obs',
             'Number of BG shards from the cube AOR',
             'Number of BG shards NOT from the cube AOR',
-            'True if this is IO signal-corrected (SL only)'
+            'True if this is IO signal-corrected (SL only)',
+            'SIMLA product type',
         ]
 
         if not iocorr: savename = self.savename
@@ -502,6 +505,7 @@ class SimlaCube:
         uncname = savename.replace('.fits', '_unc.fits')
         unc_hdul = fits.open(uncname)
         unc_header = update_header(unc_hdul[0].header, keywords, values, comments)
+        unc_header['PTYPE'] = 'CUBEUNC'
         if iocorr: unc_header['IOCORR'] = True
         unc_hdul.writeto(uncname, overwrite=True)
 
@@ -603,24 +607,24 @@ class SimlaCube:
             'OBJNAME': self.IRS_object_name,
             'PROGID': self.PROGID,
             'AORKEY': self.AORKEY,
-            'TARGMULTI_KEY': self.multi_letter,
+            'TARGMULTI_KEY': self.multi_key,
             'CHNLNUM': self.CHNLNUM,
             'SUBORDER': self.suborder,
-            'MEAN_RA': self.ref_coords[0],
-            'MEAN_DEC': self.ref_coords[1],
+            'MEAN_RA': self.ref_coords[0], # change to RA_FOV
+            'MEAN_DEC': self.ref_coords[1], # change to DEC_FOV
             'RAMPTIME': self.RAMPTIME,
             'MEAN_MJD': round(self.MJD_mean, 5),
             'ZODI_12um': self.ZODI_12,
             'ISM_12um': self.ISM_12,
             'N_BCDS': len(self.bcd_file_names),
-            'CLASSPER': self.CLASSPER, 
-            'CLASSPAR': self.CLASSPAR,
+            'SAMPSPAT': self.SAMPSPAT, 
+            'SAMPSPEC': self.SAMPSPEC,
             'BG_MEAN_DELTAZODI': self.bg_mean_deltazodi,
             'BG_MEAN_DELTATIME': self.bg_mean_deltatime,
             'BG_RANK': str(self.background_rank),
             'BG_MEAN_RANK': self.mean_background_rank,
-            'BG_N_SAMEAOR': int(self.bg_n_sameaor),
-            'BG_N_OTHERAOR': int(self.bg_n_otheraor),
+            'BG_N_SAMEAOR': self.bg_n_sameaor,
+            'BG_N_OTHERAOR': self.bg_n_otheraor,
         }]).to_csv(statfile_name, index=False)
 
     def make_dark_mask(self, savefile=None, simlaver='-1'):
@@ -780,6 +784,10 @@ class SimlaCube:
         overlap_header.insert(28, ('CHNLNUM', cubeheader['CHNLNUM'], 'IRS channel: 0=SL, 1=SH, 2=LL, 3=LH'))
         overlap_header.insert(29, ('APERNAME', cubeheader['APERNAME'], 'IRS module and order'))
         overlap_header.insert(30, ('PROGID', cubeheader['PROGID'], 'IRS Program ID'))
+        overlap_header.insert(31, ('OBJECT', cubeheader['OBJECT'], 'Target Name'))
+        overlap_header.insert(32, ('RAMPTIME', cubeheader['RAMPTIME'], '[sec] Ramp (total DCE) integration time'))
+        overlap_header.insert(33, ('MEAN_MJD', cubeheader['MEAN_MJD'], '[days] Mean Mod. Julian Date across AOR'))
+        overlap_header.insert(34, ('PTYPE', 'DARKMASK', 'SIMLA product type'))
         
         overlap_hdu = fits.PrimaryHDU(data=main_overlap_map, header=overlap_header)
         overlap_hdu.writeto(savefile, overwrite=True)
@@ -824,6 +832,10 @@ class SimlaCube:
         mom0_header.insert(29, ('CHNLNUM', cubeheader['CHNLNUM'], 'IRS channel: 0=SL, 1=SH, 2=LL, 3=LH'))
         mom0_header.insert(30, ('APERNAME', cubeheader['APERNAME'], 'IRS module and order'))
         mom0_header.insert(31, ('PROGID', cubeheader['PROGID'], 'IRS Program ID'))
+        mom0_header.insert(32, ('OBJECT', cubeheader['OBJECT'], 'Target Name'))
+        mom0_header.insert(33, ('RAMPTIME', cubeheader['RAMPTIME'], '[sec] Ramp (total DCE) integration time'))
+        mom0_header.insert(34, ('MEAN_MJD', cubeheader['MEAN_MJD'], '[days] Mean Mod. Julian Date across AOR'))
+        mom0_header.insert(35, ('PTYPE', 'Moment 0 Map', 'SIMLA product type'))
         
         mom0_hdu = fits.PrimaryHDU(data=mom0_data, header=mom0_header)
         mom0_hdu.writeto(mapfile, overwrite=True)

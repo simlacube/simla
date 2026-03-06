@@ -147,14 +147,14 @@ def run_cubes_in_progid(progid):
                     
                     map_starting_bcd = map_starting_bcd+expected_this_map
 
-                letters = list(string.ascii_uppercase)
                 cubelist, savenames = [], []
                 for mapnum in range(len(map_bcds)):
                     
                     subcube = copy.deepcopy(cube)
-                    subcube.multi_letter = letters[mapnum]
+
+                    subcube.multi_key = str(mapnum+1)
                     subcube.bcd_file_names = np.asarray(map_bcds[mapnum])
-                    savename = str(aorkey)+letters[mapnum]+'_'+mod
+                    savename = str(aorkey)+'-'+subcube.multi_key+'_'+mod
                     
                     cubelist.append(subcube)
                     savenames.append(savename)
@@ -273,6 +273,8 @@ def init_worker(queue):
 
 # Initialize the workers and run
 ps = np.unique(progids)
+cal_progids = np.genfromtxt(SimlaVar().simlapath+'calib/SIRTFcal_progids.txt')
+ps = np.asarray([i for i in ps if i not in cal_progids]) # exclude SIRTF Calibration programs
 if __name__ == '__main__':
 
     log_queue = Queue()
