@@ -186,6 +186,7 @@ def load_superdark_sets(sd_dir):
 
     {SL_<RAMPTIME>:
         {'set': array of superdarks for each zodi bin,
+         'set_unc': the uncertainty images associated with the set,
          'depth': array of the number of darks that contribute to each pixel in a superdark,
          'fiducial_zodis': array of 12um zodi values that are the center of each zodi bin},
     {SL_<OTHER_RAMPTIME>:...}
@@ -198,6 +199,7 @@ def load_superdark_sets(sd_dir):
         ramp_superdarks = sorted(glob.glob(sd_dir+'superdarks/*SL*'+str(ramp)+'*'))
         fiducial_zodis = np.asarray(sorted([float(i.split('fidzodi-')[-1].split('_')[0].split('.npy')[0]) for i in ramp_superdarks]))
         superdark_sets['SL_'+str(ramp)] = {'set': np.asarray([np.load(i)[0] for i in ramp_superdarks]),
+                                           'set_unc': np.asarray([np.load(i)[2] for i in ramp_superdarks]),
                                            'depth': np.asarray([np.load(i)[1] for i in ramp_superdarks]),
                                            'fiducial_zodis': fiducial_zodis}
         
@@ -205,6 +207,7 @@ def load_superdark_sets(sd_dir):
         ramp_superdarks = sorted(glob.glob(sd_dir+'superdarks/*LL_*'+str(ramp)+'*'))
         fiducial_zodis = np.asarray(sorted([float(i.split('fidzodi-')[-1].split('_')[0].split('.npy')[0]) for i in ramp_superdarks]))
         superdark_sets['LL_'+str(ramp)] = {'set': np.asarray([np.load(i)[0] for i in ramp_superdarks]),
+                                           'set_unc': np.asarray([np.load(i)[2] for i in ramp_superdarks]),
                                            'depth': np.asarray([np.load(i)[1] for i in ramp_superdarks]),
                                            'fiducial_zodis': fiducial_zodis}
     
@@ -212,6 +215,7 @@ def load_superdark_sets(sd_dir):
         ramp_superdarks = sorted(glob.glob(sd_dir+'superdarks/*LLa*'+str(ramp)+'*'))
         fiducial_zodis = np.asarray(sorted([float(i.split('fidzodi-')[-1].split('_')[0].split('.npy')[0]) for i in ramp_superdarks]))
         superdark_sets['LLa_'+str(ramp)] = {'set': np.asarray([np.load(i)[0] for i in ramp_superdarks]),
+                                            'set_unc': np.asarray([np.load(i)[2] for i in ramp_superdarks]),
                                             'depth': np.asarray([np.load(i)[1] for i in ramp_superdarks]),
                                             'fiducial_zodis': fiducial_zodis}
     return superdark_sets
@@ -229,6 +233,7 @@ def interp_superdark(z, superdark_set, return_set=False):
     
     '''
     fiducial_zodis = superdark_set['fiducial_zodis']
+    superdark_set_unc = superdark_set['set_unc']
     superdark_set = superdark_set['set']
 
     # If input zodi is outside of the interpolation range, just use whatever one is closest
@@ -244,9 +249,14 @@ def interp_superdark(z, superdark_set, return_set=False):
     low_im = superdark_set[fiducial_zodis==z_low][0]
     high_im = superdark_set[fiducial_zodis==z_high][0]
     out_image = np.average((low_im, high_im), axis=0, weights=(low_weight, high_weight))
+
+    low_im_unc = superdark_set_unc[fiducial_zodis==z_low][0]
+    high_im_unc = superdark_set_unc[fiducial_zodis==z_high][0]
+    uncstack = np.asarray([low_im_unc*low_weight, high_im_unc*high_weight])
+    out_image_unc = np.sqrt(np.nansum(uncstack**2, axis=0)) / (low_weight+high_weight)
         
-    if not return_set: return out_image
-    elif return_set: return out_image, low_im, high_im
+    if not return_set: return out_image, out_image_unc
+    elif return_set: return out_image, out_image_unc, low_im, high_im
 
 def photometry(region, image_data, image_header):
 

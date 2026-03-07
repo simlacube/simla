@@ -138,6 +138,7 @@ class SimlaCube:
         
         mod = ['SL', 'SH', 'LL', 'LH'][self.CHNLNUM]
         self.superdark = np.load(simlapath+'superdarks/tailored_superdarks/'+str(self.AORKEY)+'_'+mod+'.npy')
+        self.superdark_unc = np.load(simlapath+'superdarks/tailored_superdarks/'+str(self.AORKEY)+'_'+mod+'_unc.npy')
         self.zodiim = np.load(simlapath+'zodi_images/zodi_images/'+str(self.AORKEY)+'_'+mod+'.npy')
 
         if self.CHNLNUM == 0: nshards = sl_n_shards
@@ -268,6 +269,8 @@ class SimlaCube:
             loaded_aorkeys = np.unique(aorkeys)
             loaded_superdarks = np.asarray([np.load(simlapath+'superdarks/tailored_superdarks/'+ \
                                          str(aorkey)+'_'+mod+'.npy') for aorkey in loaded_aorkeys])
+            loaded_superdark_uncs = np.asarray([np.load(simlapath+'superdarks/tailored_superdarks/'+ \
+                                         str(aorkey)+'_'+mod+'_unc.npy') for aorkey in loaded_aorkeys])
             loaded_zodiims = np.asarray([np.load(simlapath+'zodi_images/zodi_images/'+ \
                                       str(aorkey)+'_'+mod+'.npy') for aorkey in loaded_aorkeys])
 
@@ -279,9 +282,12 @@ class SimlaCube:
             mapped_aors = [aorkeys[np.where(dceids==dceid)][0] for dceid in loaded_dceids]
             mapped_loaded_combined_bgs = np.asarray([loaded_combined_bgs[np.where(loaded_aorkeys==aor)][0] \
                                                          for aor in mapped_aors])
+            mapped_loaded_superdark_uncs = np.asarray([loaded_superdark_uncs[np.where(loaded_aorkeys==aor)][0] \
+                                                         for aor in mapped_aors])
 
             # Pre-subtract the calibration data. subim_cube has as many planes as there are unique DCEIDs.
             subim_cube = loaded_bcd_data - mapped_loaded_combined_bgs
+            subim_cube_unc = np.sqrt((loaded_bcd_unc**2) + (mapped_loaded_superdark_uncs**2))
             ### --- ###
 
             # When collapsing it, the average is weighted by the number of contributing shards
@@ -315,7 +321,7 @@ class SimlaCube:
 
             # Use the shardmask_selection_cube to extract the actual BCD data where appropriate
             selected_background_cube = np.where(shardmask_selection_cube==1, subim_cube, np.nan)
-            selected_unc_cube = np.where(shardmask_selection_cube==1, loaded_bcd_unc, np.nan)
+            selected_unc_cube = np.where(shardmask_selection_cube==1, subim_cube_unc, np.nan)
 
             # Do the pixel-by-pixel clipping. Since axis=0, pixel values are compared against
             # their peers with the same 2D coordinates
@@ -325,7 +331,7 @@ class SimlaCube:
 
             # Mean-combine the stack and add to the background
             shard_background = np.nanmean(trimmed_shard_cube.data, axis=0)
-            background_unc = np.sqrt(np.nansum(trimmed_shard_unc_cube**2, axis=0)) / \
+            shard_background_unc = np.sqrt(np.nansum(trimmed_shard_unc_cube**2, axis=0)) / \
                 np.nansum(np.where(trimmed_shard_unc_cube==trimmed_shard_unc_cube, 1, 0), axis=0)
 
             # Make sure that the IO pixels is 0 in the shard part so that it doesn't negate the IO 
@@ -342,11 +348,12 @@ class SimlaCube:
             io_background = np.where(io_background!=io_background, 0, io_background)
     
             final_background = init_background + shard_background + io_background
+            final_background_unc = np.sqrt((shard_background_unc**2) + (self.superdark_unc**2))
 
             self.shard_background = shard_background
             self.io_background = io_background
             self.background = final_background
-            self.background_unc = background_unc
+            self.background_unc = final_background_unc
     
             self.background_depth_map = np.sum(np.where(trimmed_shard_cube.data==trimmed_shard_cube.data, 1, 0), axis=0)
             self.used_shard_data = {'AORKEY': aorkeys, 'DCEID': dceids, 'SUBORDER': suborders, 'SHARD': shardids}
@@ -361,9 +368,9 @@ class SimlaCube:
 
         else:
 
-            # If no shards are found, background is zodi + superdark. Uncertainty is 10%
+            # If no shards are found, background is zodi + superdark.
             self.background = init_background
-            self.background_unc = init_background * 0.10
+            self.background_unc = self.superdark_unc
     
             self.background_depth_map = np.zeros((128, 128))
             self.used_shard_data = {'AORKEY': np.asarray([]), 'DCEID': np.asarray([]), \

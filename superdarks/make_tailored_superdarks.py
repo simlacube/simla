@@ -50,8 +50,12 @@ for aor in tqdm(np.unique(aorkeys), desc='making tailored superdarks for each AO
         else: ordername = ordername
     
         superdark_set = superdark_sets[ordername+'_'+str(ramp)]
-        superdark = interp_superdark(zodi, superdark_set)
+        superdark, superdark_unc = interp_superdark(zodi, superdark_set)
 
         ordername = ['SL', 'SH', 'LL', 'LH'][chnl]
         name = str(aor)+'_'+ordername
         np.save(tsd_dir+name, superdark)
+        uncname = name+'_unc'
+        np.save(tsd_dir+uncname, superdark_unc)
+
+        
