@@ -79,7 +79,7 @@ class SimlaCube:
             if spectral_overlap < 0: self.SAMPSPEC = 'SPARSE'
             elif 0 <= spectral_overlap <= threshold: self.SAMPSPEC = 'MARGINAL'
             elif threshold < spectral_overlap: self.SAMPSPEC = 'ROBUST'
-            if header['STEPSPER'] == 1: sself.SAMPSPEC= 'SLIT'
+            if header0['STEPSPER'] == 1: sself.SAMPSPEC= 'SLIT'
 
         except:
             self.SAMPSPAT = 'N/A'
