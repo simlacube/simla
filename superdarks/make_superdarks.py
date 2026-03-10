@@ -151,20 +151,26 @@ pickle.dump(bin_dict, open(simlapath+'storage/superdark_zodi_bin_data.pkl', 'wb'
 def generate_superdark(masked_file_list):
 
     '''
-    Takes in the list of loaded and masked dark BCDs and 
-    returns a zodibin-separated list of [superdark, depth_image]
+    Takes in the list of BCD file names and 
+    returns a zodibin-separated list of [superdark, depth_image, superdark_unc]
     where depth_image tells how many BCDs contributed to each pixel.
 
     '''
-    
+
     stack = []
+    stack_unc = []
     for f in range(len(masked_file_list)):
-        with fits.open(masked_file_list[f]) as hdul:
+        
+        with fits.open(masked_file_list[f], memmap=False) as hdul:
             imdat = hdul[0].data
             imhead = hdul[0].header
         modname = ['SL', None, 'LL', None][imhead['CHNLNUM']]
         zodiim = np.load(zodi_im_path+str(imhead['AORKEY'])+'_'+modname+'.npy')
         subim = imdat - zodiim
+
+        uncfile = masked_file_list[f].replace('bcd.','func.')
+        with fits.open(uncfile, memmap=False) as hdul_unc:
+            uncdat = hdul_unc[0].data
 
         # Do a crude j2-like cut
         n_pass = 0
@@ -173,17 +179,21 @@ def generate_superdark(masked_file_list):
                 if np.nanmedian(subim*shardmask) < med_pixval_cut: n_pass += 1
         if n_pass == [sl_n_shards*2, None, ll_n_shards*2][imhead['CHNLNUM']]:
             stack.append(subim)
+            stack_unc.append(uncdat)
             
         if f % 1000 == 0:
             gc.collect()
     stack = np.asarray(stack)
+    stack_unc = np.asarray(stack_unc)
     
     if len(stack) > 0:
         trimmed_stack = sigma_clip(stack, maxiters=5, sigma=SimlaVar().sd_trim_sigma, axis=0)
         trimmed_stack = np.where(trimmed_stack=='--', np.nan, trimmed_stack)
         superdark = np.nanmedian(trimmed_stack, axis=0)
+        superdark_unc = np.sqrt(np.nansum(stack_unc**2, axis=0)) / np.nansum(stack_unc, axis=0)
+        # ^ assuming that the uncertainty of the median is similar to that of the mean
         depth_image = np.nansum(np.where(trimmed_stack==trimmed_stack, 1, 0), axis=0)
-        return np.asarray([superdark, depth_image])
+        return np.asarray([superdark, depth_image, superdark_unc])
     else: return None
 
 # Create the superdarks for SL and LL

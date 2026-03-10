@@ -1,4 +1,5 @@
-run_name = run11
+run_name = TEST
+simla_version = v0.9
 j1_cut = 0.1
 j2_cut = 2
 deltat = 10

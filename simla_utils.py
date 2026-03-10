@@ -36,6 +36,7 @@ def run_inputs_loader(inputfile):
             splitter = i.split('=')
             var, ip = splitter[0].replace(' ',''), splitter[1].replace(' ','')
             if var == 'run_name': ip = str(ip).replace('\n', '')
+            elif var == 'simla_version': ip = str(ip).replace('\n', '')
             elif var == 'min_shard_depth': ip = int(ip)
             else: ip = float(ip)
             out_dict[var] = ip
@@ -113,6 +114,28 @@ def wise_filename_to_coords(wfile):
         dec = -dec
     return ra, dec
 
+def name_conv(root_name, filetype):
+    '''
+    Given the root filename (AORKEY_SUBORDER), define and apply the naming convention
+    based on the file type.
+
+    Useful so as to not break the code so easily if the naming convention changes.
+    This is for delivered products only.
+
+    --- NOT CURRENTLY IMPLEMENTED ---
+    '''
+    nameend_dict = {
+        'cube': '_cube.fits',
+        'cube_unc': '_cube_unc.fits',
+        'cube-iocorr': '_cube-iocorr.fits',
+        'cube-iocorr_unc': '_cube-iocorr_unc.fits',
+        'mom0': '_mom0.fits',
+        'darkmask': '_darkmask.fits',
+        'spec': '_spec.tbl',
+        'spec-iocorr': '_spec-iocorr.tbl',
+    }
+    return root_name+nameend_dict[filetype]
+
 def angular_separation(coords1, coords2):
     '''
     Return the angular separation in degrees between a pair of coordinates.
@@ -163,6 +186,7 @@ def load_superdark_sets(sd_dir):
 
     {SL_<RAMPTIME>:
         {'set': array of superdarks for each zodi bin,
+         'set_unc': the uncertainty images associated with the set,
          'depth': array of the number of darks that contribute to each pixel in a superdark,
          'fiducial_zodis': array of 12um zodi values that are the center of each zodi bin},
     {SL_<OTHER_RAMPTIME>:...}
@@ -175,6 +199,7 @@ def load_superdark_sets(sd_dir):
         ramp_superdarks = sorted(glob.glob(sd_dir+'superdarks/*SL*'+str(ramp)+'*'))
         fiducial_zodis = np.asarray(sorted([float(i.split('fidzodi-')[-1].split('_')[0].split('.npy')[0]) for i in ramp_superdarks]))
         superdark_sets['SL_'+str(ramp)] = {'set': np.asarray([np.load(i)[0] for i in ramp_superdarks]),
+                                           'set_unc': np.asarray([np.load(i)[2] for i in ramp_superdarks]),
                                            'depth': np.asarray([np.load(i)[1] for i in ramp_superdarks]),
                                            'fiducial_zodis': fiducial_zodis}
         
@@ -182,6 +207,7 @@ def load_superdark_sets(sd_dir):
         ramp_superdarks = sorted(glob.glob(sd_dir+'superdarks/*LL_*'+str(ramp)+'*'))
         fiducial_zodis = np.asarray(sorted([float(i.split('fidzodi-')[-1].split('_')[0].split('.npy')[0]) for i in ramp_superdarks]))
         superdark_sets['LL_'+str(ramp)] = {'set': np.asarray([np.load(i)[0] for i in ramp_superdarks]),
+                                           'set_unc': np.asarray([np.load(i)[2] for i in ramp_superdarks]),
                                            'depth': np.asarray([np.load(i)[1] for i in ramp_superdarks]),
                                            'fiducial_zodis': fiducial_zodis}
     
@@ -189,6 +215,7 @@ def load_superdark_sets(sd_dir):
         ramp_superdarks = sorted(glob.glob(sd_dir+'superdarks/*LLa*'+str(ramp)+'*'))
         fiducial_zodis = np.asarray(sorted([float(i.split('fidzodi-')[-1].split('_')[0].split('.npy')[0]) for i in ramp_superdarks]))
         superdark_sets['LLa_'+str(ramp)] = {'set': np.asarray([np.load(i)[0] for i in ramp_superdarks]),
+                                            'set_unc': np.asarray([np.load(i)[2] for i in ramp_superdarks]),
                                             'depth': np.asarray([np.load(i)[1] for i in ramp_superdarks]),
                                             'fiducial_zodis': fiducial_zodis}
     return superdark_sets
@@ -206,6 +233,7 @@ def interp_superdark(z, superdark_set, return_set=False):
     
     '''
     fiducial_zodis = superdark_set['fiducial_zodis']
+    superdark_set_unc = superdark_set['set_unc']
     superdark_set = superdark_set['set']
 
     # If input zodi is outside of the interpolation range, just use whatever one is closest
@@ -221,9 +249,14 @@ def interp_superdark(z, superdark_set, return_set=False):
     low_im = superdark_set[fiducial_zodis==z_low][0]
     high_im = superdark_set[fiducial_zodis==z_high][0]
     out_image = np.average((low_im, high_im), axis=0, weights=(low_weight, high_weight))
+
+    low_im_unc = superdark_set_unc[fiducial_zodis==z_low][0]
+    high_im_unc = superdark_set_unc[fiducial_zodis==z_high][0]
+    uncstack = np.asarray([low_im_unc*low_weight, high_im_unc*high_weight])
+    out_image_unc = np.sqrt(np.nansum(uncstack**2, axis=0)) / (low_weight+high_weight)
         
-    if not return_set: return out_image
-    elif return_set: return out_image, low_im, high_im
+    if not return_set: return out_image, out_image_unc
+    elif return_set: return out_image, out_image_unc, low_im, high_im
 
 def photometry(region, image_data, image_header):
 
@@ -724,7 +757,7 @@ class bcd_spectrum:
 
         return wavelengths[final_mask], fluxes[final_mask]
 
-def generate_QA_form(cube_filename, pdf_savename, iocorr_spectra=False):
+def generate_QA_form(cube_filename, ancillary_dir, pdf_savename, iocorr_spectra=False):
 
     '''
     Generate a PDF file that contains high-level plots that are useful
@@ -737,25 +770,29 @@ def generate_QA_form(cube_filename, pdf_savename, iocorr_spectra=False):
         - save_spectrum
 
     For the spectra, save_spectrum should have run such that there is a 
-    *_darkspec.dat, *_brighspec.dat, and corresponding files if there are 
+    *_darkspec.tbl, *_brighspec.tbl, and corresponding files if there are 
     IO versions.
 
     cube_filename: (str) the file name of the SIMLA cube for QA.
+    ancillary_dir: (str) directory containing the ancillary extracted spectra
     pdf_savename: (str) the name of the file to save the PDF to.
     iocorr_spectra: (bool) whether to extract and show the IO corrected spectra.
 
     '''
 
-    def spectrumplot(cube_filename, iocorr_spectra=False):
+    def spectrumplot(cube_filename, ancillary_dir, iocorr_spectra=False):
     
         fig, axs = plt.subplots(2, 1, figsize=(15, 14))
-    
-        darkfile = cube_filename.replace('.fits', '_darkspec.dat')
-        brightfile = cube_filename.replace('.fits', '_brightspec.dat')
+
+        cubename = cube_filename.split('/')[-1]
+        convert_name = ancillary_dir+cubename
+        
+        darkfile = convert_name.replace('_cube.fits', '_darkspec.tbl')
+        brightfile = convert_name.replace('_cube.fits', '_brightspec.tbl')
     
         if iocorr_spectra:
-            darkfile_io = cube_filename.replace('.fits', '_iocorr-darkspec.dat')
-            brightfile_io = cube_filename.replace('.fits', '_iocorr-brightspec.dat')
+            darkfile_io = convert_name.replace('_cube.fits', '_darkspec-iocorr.tbl')
+            brightfile_io = convert_name.replace('_cube.fits', '_brightspec-iocorr.tbl')
     
         def plotter(filename, kind):
     
@@ -773,7 +810,7 @@ def generate_QA_form(cube_filename, pdf_savename, iocorr_spectra=False):
                 'On Source IO Corrected': [axs[0]],
             }[kind]
     
-            l, f, u = np.genfromtxt(filename).T
+            l, f, u = np.genfromtxt(filename, skip_header=4).T
     
             for ax in axes:
                 ax.step(l, f, where='mid', color=color, label=kind)
@@ -803,7 +840,7 @@ def generate_QA_form(cube_filename, pdf_savename, iocorr_spectra=False):
     def whitelightplot(cube_filename):
     
         fig, axs = plt.subplots(1, 1)
-        mom0 = fits.getdata(cube_filename.replace('.fits', '_mom0.fits'))
+        mom0 = fits.getdata(cube_filename.replace('_cube.fits', '_mom0.fits'))
         vmin, vmax = np.nanpercentile(mom0, [10, 90])
         im = plt.imshow(mom0, vmin=vmin, vmax=vmax, origin='lower', cmap='plasma')
         plt.title('Moment 0 Map')
@@ -867,12 +904,15 @@ def generate_QA_form(cube_filename, pdf_savename, iocorr_spectra=False):
         return fig
 
     pdf = PdfPages(pdf_savename)
-    s = spectrumplot(cube_filename, iocorr_spectra).savefig(pdf, format='pdf', bbox_inches='tight')
+    s = spectrumplot(cube_filename, ancillary_dir, iocorr_spectra).savefig(pdf, format='pdf', bbox_inches='tight')
     plt.close()
     m = whitelightplot(cube_filename).savefig(pdf, format='pdf', bbox_inches='tight')
     plt.close()
-    i = IRS_on_WISE(cube_filename).savefig(pdf, format='pdf', bbox_inches='tight')
-    plt.close()
+    try:
+        # Some cubes fail on this step
+        i = IRS_on_WISE(cube_filename).savefig(pdf, format='pdf', bbox_inches='tight')
+        plt.close()
+    except: pass
     pdf.close()
     
     return

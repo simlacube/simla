@@ -11,6 +11,7 @@ from astropy import units as u
 import astropy
 from shapely import Polygon, Point
 from scipy.ndimage import zoom
+from astropy.table import Table
 import ast
 import warnings, sys, os
 warnings.filterwarnings("ignore")
@@ -55,6 +56,34 @@ class SimlaCube:
         self.ZODI_12 = np.unique(q['ZODI_12'].to_numpy())[0]
         self.ISM_12 = np.unique(q['ISM_12'].to_numpy())[0]
         self.ref_coords = (np.nanmean(q['RA_FOV'].to_numpy()), np.nanmean(q['DEC_FOV'].to_numpy()))
+
+        # target_multi only
+        self.multi_key = 'N/A'
+
+        header0 = fits.getheader(self.bcd_file_names[0])
+
+        try:
+            
+            length = [57, None, 168][self.CHNLNUM]
+            width = [3.7, None, 10.7][self.CHNLNUM]
+            
+            threshold = 0.1 # within this for MARGINAL
+            
+            spatial_overlap = 1-(header0['SIZEPAR']/length)
+            spectral_overlap = 1-(header0['SIZEPER']/width)
+            
+            if spatial_overlap < 0: self.SAMPSPAT = 'SPARSE'
+            elif 0 <= spatial_overlap <= threshold: self.SAMPSPAT = 'MARGINAL'
+            elif threshold < spatial_overlap: self.SAMPSPAT = 'ROBUST'
+            
+            if spectral_overlap < 0: self.SAMPSPEC = 'SPARSE'
+            elif 0 <= spectral_overlap <= threshold: self.SAMPSPEC = 'MARGINAL'
+            elif threshold < spectral_overlap: self.SAMPSPEC = 'ROBUST'
+            if header0['STEPSPER'] == 1: sself.SAMPSPEC= 'SLIT'
+
+        except:
+            self.SAMPSPAT = 'N/A'
+            self.SAMPSPEC = 'N/A'
 
     def make_background(self, j1_cut=0.1, j2_cut=2, deltat=5, \
                         zodi_cut=5, ism_cut=0.5, sigma_cut=1.5, \
@@ -109,6 +138,7 @@ class SimlaCube:
         
         mod = ['SL', 'SH', 'LL', 'LH'][self.CHNLNUM]
         self.superdark = np.load(simlapath+'superdarks/tailored_superdarks/'+str(self.AORKEY)+'_'+mod+'.npy')
+        self.superdark_unc = np.load(simlapath+'superdarks/tailored_superdarks/'+str(self.AORKEY)+'_'+mod+'_unc.npy')
         self.zodiim = np.load(simlapath+'zodi_images/zodi_images/'+str(self.AORKEY)+'_'+mod+'.npy')
 
         if self.CHNLNUM == 0: nshards = sl_n_shards
@@ -239,6 +269,8 @@ class SimlaCube:
             loaded_aorkeys = np.unique(aorkeys)
             loaded_superdarks = np.asarray([np.load(simlapath+'superdarks/tailored_superdarks/'+ \
                                          str(aorkey)+'_'+mod+'.npy') for aorkey in loaded_aorkeys])
+            loaded_superdark_uncs = np.asarray([np.load(simlapath+'superdarks/tailored_superdarks/'+ \
+                                         str(aorkey)+'_'+mod+'_unc.npy') for aorkey in loaded_aorkeys])
             loaded_zodiims = np.asarray([np.load(simlapath+'zodi_images/zodi_images/'+ \
                                       str(aorkey)+'_'+mod+'.npy') for aorkey in loaded_aorkeys])
 
@@ -250,9 +282,12 @@ class SimlaCube:
             mapped_aors = [aorkeys[np.where(dceids==dceid)][0] for dceid in loaded_dceids]
             mapped_loaded_combined_bgs = np.asarray([loaded_combined_bgs[np.where(loaded_aorkeys==aor)][0] \
                                                          for aor in mapped_aors])
+            mapped_loaded_superdark_uncs = np.asarray([loaded_superdark_uncs[np.where(loaded_aorkeys==aor)][0] \
+                                                         for aor in mapped_aors])
 
             # Pre-subtract the calibration data. subim_cube has as many planes as there are unique DCEIDs.
             subim_cube = loaded_bcd_data - mapped_loaded_combined_bgs
+            subim_cube_unc = np.sqrt((loaded_bcd_unc**2) + (mapped_loaded_superdark_uncs**2))
             ### --- ###
 
             # When collapsing it, the average is weighted by the number of contributing shards
@@ -286,7 +321,7 @@ class SimlaCube:
 
             # Use the shardmask_selection_cube to extract the actual BCD data where appropriate
             selected_background_cube = np.where(shardmask_selection_cube==1, subim_cube, np.nan)
-            selected_unc_cube = np.where(shardmask_selection_cube==1, loaded_bcd_unc, np.nan)
+            selected_unc_cube = np.where(shardmask_selection_cube==1, subim_cube_unc, np.nan)
 
             # Do the pixel-by-pixel clipping. Since axis=0, pixel values are compared against
             # their peers with the same 2D coordinates
@@ -296,7 +331,7 @@ class SimlaCube:
 
             # Mean-combine the stack and add to the background
             shard_background = np.nanmean(trimmed_shard_cube.data, axis=0)
-            background_unc = np.sqrt(np.nansum(trimmed_shard_unc_cube**2, axis=0)) / \
+            shard_background_unc = np.sqrt(np.nansum(trimmed_shard_unc_cube**2, axis=0)) / \
                 np.nansum(np.where(trimmed_shard_unc_cube==trimmed_shard_unc_cube, 1, 0), axis=0)
 
             # Make sure that the IO pixels is 0 in the shard part so that it doesn't negate the IO 
@@ -313,39 +348,42 @@ class SimlaCube:
             io_background = np.where(io_background!=io_background, 0, io_background)
     
             final_background = init_background + shard_background + io_background
+            final_background_unc = np.sqrt((shard_background_unc**2) + (self.superdark_unc**2))
 
             self.shard_background = shard_background
             self.io_background = io_background
             self.background = final_background
-            self.background_unc = background_unc
+            self.background_unc = final_background_unc
     
             self.background_depth_map = np.sum(np.where(trimmed_shard_cube.data==trimmed_shard_cube.data, 1, 0), axis=0)
             self.used_shard_data = {'AORKEY': aorkeys, 'DCEID': dceids, 'SUBORDER': suborders, 'SHARD': shardids}
 
             # Save stats
-            self.bg_mean_deltatime = np.nanmean(np.abs(mjds-self.MJD_mean))
-            self.bg_mean_deltazodi = np.nanmean(np.abs(zodis-self.ZODI_12))
-            self.bg_n_sameaor = np.sum(np.where(aorkeys==self.AORKEY, 1, 0))
-            self.bg_n_otheraor = np.sum(np.where(aorkeys!=self.AORKEY, 1, 0))
+            self.bg_mean_deltatime = round(np.nanmean(np.abs(mjds-self.MJD_mean)), 5)
+            self.bg_mean_deltazodi = round(np.nanmean(np.abs(zodis-self.ZODI_12)), 2)
+            self.bg_n_sameaor = int(np.sum(np.where(aorkeys==self.AORKEY, 1, 0)))
+            self.bg_n_otheraor = int(np.sum(np.where(aorkeys!=self.AORKEY, 1, 0)))
             self.bg_mean_judge_agreement = np.nanmean(judge1s/judge2s)
+            self.mean_background_rank = round(np.mean([int(i) for i in self.background_rank]), 2)
 
         else:
 
-            # If no shards are found, background is zodi + superdark. Uncertainty is 10%
+            # If no shards are found, background is zodi + superdark.
             self.background = init_background
-            self.background_unc = init_background * 0.10
+            self.background_unc = self.superdark_unc
     
             self.background_depth_map = np.zeros((128, 128))
             self.used_shard_data = {'AORKEY': np.asarray([]), 'DCEID': np.asarray([]), \
                                     'SUBORDER': np.asarray([]), 'SHARD': np.asarray([])}
 
-            self.bg_mean_deltazodi = np.nan
-            self.bg_mean_deltatime = np.nan
-            self.bg_n_sameaor = np.nan
-            self.bg_n_otheraor = np.nan
+            self.bg_mean_deltazodi = 'N/A'
+            self.bg_mean_deltatime = 'N/A'
+            self.bg_n_sameaor = 'N/A'
+            self.bg_n_otheraor = 'N/A'
             self.bg_mean_judge_agreement = np.nan
+            self.mean_background_rank = np.mean([int(i) for i in self.background_rank])
 
-    def build_cube(self, suborder, savename, autobp=True, no_data=True):
+    def build_cube(self, suborder, savename, autobp=True, no_data=True, simlaver='-1'):
 
         '''
         Wrapper for lights-out IDL code for CUBISM.
@@ -355,11 +393,13 @@ class SimlaCube:
         savename: (str) the file to save the cube to. Requires ".fits" at the end.
         autobp: (bool) use CUBISM autobadpix?
         no_data: (bool) if False, the .cpj file with be saved with BCD data.
+        simlaver: (str) the version of the SIMLA run for the FITS header.
 
         '''
 
         self.savename = savename
         self.suborder = suborder
+        self.simlaver = simlaver
         
         IDL.run('.RESET_SESSION')
 
@@ -389,20 +429,8 @@ class SimlaCube:
         os.system('mv '+savename.replace('.fits', '_unc.cpj')+' '+fixname_cpj)
         self.cpjname = fixname_cpj
 
-        # # Remove the distortion keywords from the header
-        # header = fits.getheader(savename)
-        # dist_coeffs = [card.keyword for card in header.cards if \
-        #                card.comment == 'distortion coefficient']
-        # with fits.open(savename) as hdul:
-        #     for key in dist_coeffs:
-        #         del hdul[0].header[key]
-        #     del hdul[0].header['A_ORDER']
-        #     del hdul[0].header['B_ORDER']
-        #     del hdul[0].header['AP_ORDER']
-        #     del hdul[0].header['BP_ORDER']
-        #     del hdul[0].header['A_DMAX']
-        #     del hdul[0].header['B_DMAX']
-        #     hdul.writeto(savename, overwrite=True)
+        # Update the headers
+        self.update_cube_header(simlaver=simlaver)
 
     def run_sl_io_correct(self, iocorr_savename=None):
 
@@ -410,12 +438,12 @@ class SimlaCube:
         Run the IDL code by C. Starkey to remove the inter-order artifact from SL cubes.
 
         iocorr_savename: (str or None) the file name to save the IO-corrected cube to.
-                        If None, it is saved with an automatically generated name next to the cube (_iocorr.fits).
+                        If None, it is saved with an automatically generated name next to the cube (-iocorr.fits).
         
         '''
 
         if iocorr_savename is None:
-            iocorr_savename = self.savename.replace('_cube.fits', '_iocorr.fits')
+            iocorr_savename = self.savename.replace('.fits', '-iocorr.fits')
 
         IDL.run('.RESET_SESSION')
         IDL.run('cd, "'+simlapath+'sl_io_correct"')
@@ -424,24 +452,101 @@ class SimlaCube:
         IDL.run('sl_io_correct, cpjpath, save_location, /QUIET ')
         os.system('cd '+simlapath)
 
-    def save_cpj_params(self, delete_cpj=False):
+        self.update_cube_header(simlaver=self.simlaver, iocorr=True)
+
+    def update_cube_header(self, simlaver='-1', iocorr=False):
+
+        '''
+        Once the cube FITS files have been saved, run this to update the headers
+
+        simlaver: (str) the version of the SIMLA run for the FITS header.
+        iocorr: (bool) whether this is an IO-corrected version of the cube.
+        '''
+
+        def update_header(header, keywords, values, comments):
+            istart = 37
+            header.insert(istart, ('', '  / SIMLA PIPELINE'))
+            header.insert(istart+1, ('', ''))
+            for i in range(len(keywords)):
+                header.insert(istart+2+i, (keywords[i], values[i], comments[i]))
+            header.insert(istart+len(keywords)+2, ('', ''))
+            return header
+
+        keywords = [
+            'SIMLAVER', 'SAMPSPAT', 'SAMPSPEC', 'N_BCDS', 'MEAN_MJD',
+            'ZODI12UM', 'ISM12UM', 
+            'BG_RANK', 'BG_DZODI', 'BG_DTIME', 'BG_IN', 'BG_OUT',
+            'IOCORR', 'PTYPE',
+        ]
+        values = [
+            simlaver, self.SAMPSPAT, self.SAMPSPEC, \
+            len(self.dceids), round(self.MJD_mean, 5), self.ZODI_12, self.ISM_12, self.mean_background_rank, \
+            self.bg_mean_deltazodi, self.bg_mean_deltatime, self.bg_n_sameaor, \
+            self.bg_n_otheraor, False, 'CUBE',
+        ]
+        comments = [
+            'SIMLA pipeline version',
+            'Parallel pixel redundancy classification',
+            'Perpendicular pixel redundancy classification',
+            'Number of constituent BCDs in cube',
+            '[days] Mean Mod. Julian Date across AOR',
+            '[MJy/sr] model zodiacal intensity at 12 micron',
+            '[MJy/sr] model ISM intensity at 12 micron',
+            'Mean background rank (1=best, 4=worst)',
+            '[MJy/sr] mean delta zodi across used BG obs',
+            '[days] mean delta time across used BG obs',
+            'Number of BG shards from the cube AOR',
+            'Number of BG shards NOT from the cube AOR',
+            'True if this is IO signal-corrected (SL only)',
+            'SIMLA product type',
+        ]
+
+        if not iocorr: savename = self.savename
+        elif iocorr: savename = self.savename.replace('.fits', '-iocorr.fits')
+        
+        cube_hdul = fits.open(savename)
+        cube_header = update_header(cube_hdul[0].header, keywords, values, comments)
+        if iocorr: cube_header['IOCORR'] = True
+        cube_hdul.writeto(savename, overwrite=True)
+
+        uncname = savename.replace('.fits', '_unc.fits')
+        unc_hdul = fits.open(uncname)
+        unc_header = update_header(unc_hdul[0].header, keywords, values, comments)
+        unc_header['PTYPE'] = 'CUBEUNC'
+        if iocorr: unc_header['IOCORR'] = True
+        unc_hdul.writeto(uncname, overwrite=True)
+
+    def save_cpj_params(self, delete_cpj=False, move_to=None):
 
         '''
         Save various parameters stored in the .cpj files.
 
         delete_cpj: (bool) if True, delete the cube project file (.cpj) after saving parameters.
 
+        move_to: (None or str) if not None, the path to move output files to (include the final /).
+
         '''
 
         cubismpath = SimlaVar().cubismpath
 
+        cpjpath = self.cpjname
+
+        bplpath = self.savename.replace('_cube.fits', '.bpl')
+        if move_to is not None: bplpath = move_to+bplpath.split('/')[-1]
+
         IDL.run('.RESET_SESSION')
-        IDL.cpjpath = self.savename.replace('.fits', '.cpj')
+        IDL.cpjpath = cpjpath
         IDL.run('.run '+cubismpath+'cubism/cube/cubeproj_load.pro')
         IDL.run('cube=cubeproj_load(cpjpath)')
-        IDL.run('cube->SaveBadPixels, "'+self.savename.replace('_cube.fits', '.bpl')+'"')
+        IDL.run('cube->SaveBadPixels, "'+bplpath+'"')
 
-        if delete_cpj: os.remove(self.savename.replace('.fits', '.cpj'))
+        if move_to is not None:
+            new_cpjpath = move_to+cpjpath.split('/')[-1]
+            os.system('mv '+cpjpath+' '+new_cpjpath)
+
+        if delete_cpj:
+            if move_to is None: os.remove(cpjpath)
+            elif move_to is not None: os.remove(new_cpjpath)
 
     def save_background(self, bg_savename=None):
 
@@ -503,39 +608,48 @@ class SimlaCube:
                      If None, it is saved with an automatically generated name next to the cube (_stats.csv).        
 
         '''
-
-        ncycles = fits.getheader(self.bcd_file_names[0])['NCYCLES']
-        length = [57, None, 168][self.CHNLNUM]
-        width = [3.7, None, 10.7][self.CHNLNUM]
-        self.map_ply = ncycles*(width/self.STEPSPER)*(length/self.STEPSPAR)
         
         if statfile_name is None: statfile_name = self.savename.replace('_cube.fits', '_stats.csv')
         pd.DataFrame([{
-            'CUBE_AORKEY': self.AORKEY,
-            'CUBE_CHNLNUM': self.CHNLNUM,
-            'CUBE_SUBORDER': self.suborder,
-            'CUBE_RAMPTIME': self.RAMPTIME,
-            'MAP_PLY': self.map_ply,
-            'CUBE_MEAN_MJD': self.MJD_mean,
-            'CUBE_ZODI_12um': self.ZODI_12,
-            'CUBE_ISM_12um': self.ISM_12,
-            'CUBE_N_BCDS': len(self.dceids),
+            'OBJNAME': self.IRS_object_name,
+            'PROGID': self.PROGID,
+            'AORKEY': self.AORKEY,
+            'TARGMULTI_KEY': self.multi_key,
+            'CHNLNUM': self.CHNLNUM,
+            'SUBORDER': self.suborder,
+            'MEAN_RA': self.ref_coords[0], # change to RA_FOV
+            'MEAN_DEC': self.ref_coords[1], # change to DEC_FOV
+            'RAMPTIME': self.RAMPTIME,
+            'MEAN_MJD': round(self.MJD_mean, 5),
+            'ZODI_12um': self.ZODI_12,
+            'ISM_12um': self.ISM_12,
+            'N_BCDS': len(self.bcd_file_names),
+            'SAMPSPAT': self.SAMPSPAT, 
+            'SAMPSPEC': self.SAMPSPEC,
             'BG_MEAN_DELTAZODI': self.bg_mean_deltazodi,
             'BG_MEAN_DELTATIME': self.bg_mean_deltatime,
-            'BG_RANK': self.background_rank,
+            'BG_RANK': str(self.background_rank),
+            'BG_MEAN_RANK': self.mean_background_rank,
             'BG_N_SAMEAOR': self.bg_n_sameaor,
             'BG_N_OTHERAOR': self.bg_n_otheraor,
-            'BG_MEAN_JUDGE_AGREEMENT': self.bg_mean_judge_agreement,
-        }]).to_csv(statfile_name)
+        }]).to_csv(statfile_name, index=False)
 
-    def make_dark_mask(self, savefile=None):
+    def make_dark_mask(self, savefile=None, simlaver='-1'):
     
         '''
         Creates a pixel mask for a SIMLA cube corresponding to same-AOR 
-        shards used in the background.
+        shards used in the background. Dark pixels in this mask have been 
+        touched *only* by dark shards.
+
+        NOTE: since we determine whether a pixel is dark based upon whether
+        it is in a dark shard, the spatial-direction edges of the darkmask
+        are trunated by a pixel relative to the cube footprint. This is probably
+        because of the edge-trimming that we did for the shards.
 
         savefile: (str or None) specify the save name for the map FITS file. 
-                     If None, it is saved with an automatically generated name next to the cube (_darkmask.fits). 
+                     If None, it is saved with an automatically generated name next to the cube (_darkmask.fits).
+
+        simlaver: (str) the version of the SIMLA run for the FITS header.
         '''
 
         cube_file = self.savename
@@ -551,39 +665,39 @@ class SimlaCube:
         # Load in the cube and shardlist
         loadcube = fits.open(cube_file)
         cube_data = loadcube[0].data
-        cube_wcs = WCS(loadcube[0].header, fobj=fits.open(cube_file), naxis=2)
+        cube_wcs = WCS(loadcube[0].header, fobj=loadcube, naxis=2)
         
         cube_aor, chnlnum = int(loadcube[0].header['AORKEY']), int(loadcube[0].header['CHNLNUM'])
         
-        s_aors, s_dceids, s_ids = [], [], []
+        d_aors, d_dceids, d_ids = [], [], []
         for d in sorted(np.unique(self.used_shard_data['DCEID'])):
-            s_aors.append(self.used_shard_data['AORKEY'][np.where(self.used_shard_data['DCEID']==d)][0])
-            s_dceids.append(d)
-            s_ids.append(str(sorted(self.used_shard_data['SHARD'][np.where((self.used_shard_data['DCEID']==d) & \
+            d_aors.append(self.used_shard_data['AORKEY'][np.where(self.used_shard_data['DCEID']==d)][0])
+            d_dceids.append(d)
+            d_ids.append(str(sorted(self.used_shard_data['SHARD'][np.where((self.used_shard_data['DCEID']==d) & \
                                                                            (self.used_shard_data['SUBORDER']==suborder))])))
-        s_aors, s_dceids, s_ids = np.asarray(s_aors), np.asarray(s_dceids), np.asarray(s_ids)
+        d_aors, d_dceids, d_ids = np.asarray(d_aors), np.asarray(d_dceids), np.asarray(d_ids)
         
         # reformat
-        s_ids_reform, s_aors_reform, s_dceids_reform = [], [], []
-        for i in range(len(s_ids)):
-            idlist = np.asarray(ast.literal_eval(s_ids[i]))
+        d_ids_reform, d_aors_reform, d_dceids_reform = [], [], []
+        for i in range(len(d_ids)):
+            idlist = np.asarray(ast.literal_eval(d_ids[i]))
             if len(idlist) > 0:
-                s_ids_reform.extend(idlist)
-                s_aors_reform.extend(s_aors[i]*np.ones_like(idlist))
-                s_dceids_reform.extend(s_dceids[i]*np.ones_like(idlist))
-        s_ids, s_aors, s_dceids = \
-            np.asarray(s_ids_reform), np.asarray(s_aors_reform), np.asarray(s_dceids_reform)
+                d_ids_reform.extend(idlist)
+                d_aors_reform.extend(d_aors[i]*np.ones_like(idlist))
+                d_dceids_reform.extend(d_dceids[i]*np.ones_like(idlist))
+        d_ids, d_aors, d_dceids = \
+            np.asarray(d_ids_reform), np.asarray(d_aors_reform), np.asarray(d_dceids_reform)
     
-        s_ids = s_ids.astype(int)
-        s_aors = s_aors.astype(int)
-        s_dceids = s_dceids.astype(int)
+        d_ids = d_ids.astype(int)
+        d_aors = d_aors.astype(int)
+        d_dceids = d_dceids.astype(int)
     
-        # Get the shards from this AOR
-        m_aor = np.where(s_aors==cube_aor)
-        s_dceids, s_ids = s_dceids[m_aor], s_ids[m_aor]
-        s_pairs = np.asarray([s_dceids, s_ids]).T.tolist()
+        # Get the dark shards from this AOR
+        m_aor = np.where(d_aors==cube_aor)
+        d_dceids, d_ids = d_dceids[m_aor], d_ids[m_aor]
+        d_pairs = np.asarray([d_dceids, d_ids]).T.tolist()
 
-        if len(s_dceids) > 0:
+        if len(d_dceids) > 0:
             
             # Query the DB for the shard corners of dark shards
             q = query(simladbX.select(*scorners, DB_shardpos.DCEID, DB_shardpos.SHARD) \
@@ -592,25 +706,9 @@ class SimlaCube:
             corners, q_dceids, q_ids = \
                 fmt_scorners(q), q['DCEID'].to_numpy(), q['SHARD'].to_numpy()
             q_pairs = np.asarray([q_dceids, q_ids]).T.tolist()
-        
-            bg_mask = np.asarray([1 if i in s_pairs else 0 for i in q_pairs])
-            corners = corners[np.where(bg_mask)]
-        
-            # Take a representative slice of the cube for pixel grid
-            # and sub-sample it
-            scale = 10 # IMPORTANT: pixels will be evaluated as in dark shards after being 
-                       # scaled up by this amount (and then scaled back down)
-            pixgrid = zoom(cube_data[0], zoom=scale)
-        
-            # Resize the WCS
-            pixgrid_wcs = WCS(loadcube[0].header, fobj=fits.open(cube_file), naxis=2)
-            pixgrid_wcs = WCS(pixgrid_wcs.to_header())
-            pixgrid_wcs.wcs.crpix = pixgrid_wcs.wcs.crpix*scale 
-            pixgrid_wcs.wcs.cdelt = pixgrid_wcs.wcs.cdelt/scale
-            pixgrid_wcs.array_shape = (
-                    int(pixgrid.shape[0] * scale),
-                    int(pixgrid.shape[1] * scale),
-                )
+
+            # 1 if the shard was used in the BG, otherwise 0
+            use_mask = np.asarray([1 if i in d_pairs else 0 for i in q_pairs])
         
             def clip_pixel(x, y):
         
@@ -629,21 +727,22 @@ class SimlaCube:
                 
                 return normalized_overlap
         
-            # Loop through each shard region and get the overlap maps
+            # Loop through each shard region and see whether each pixel was touched 
+            # by that shard
             overlap_cube = []
             for shard in corners:
-        
+
                 try:
         
-                    image_xsize = pixgrid.shape[1]
-                    image_ysize = pixgrid.shape[0]
-                    overlap_map = np.zeros_like(pixgrid)
+                    image_xsize = cube_data[0].shape[1]
+                    image_ysize = cube_data[0].shape[0]
+                    overlap_map = np.zeros_like(cube_data[0])
         
                     # Pixel region of the shard
                     pixel_region = []
                     for p in shard:
                         sky_c = SkyCoord(p[0], p[1], unit='deg')
-                        pixel_p = astropy.wcs.utils.skycoord_to_pixel(sky_c, pixgrid_wcs)
+                        pixel_p = astropy.wcs.utils.skycoord_to_pixel(sky_c, cube_wcs)
                         pixel_region.append([pixel_p[0], pixel_p[1]])
                     region_polygon = Polygon(pixel_region)
                     
@@ -670,24 +769,39 @@ class SimlaCube:
                         except IndexError: pass # Handles regions larger than the cube
             
                     overlap_cube.append(overlap_map)
-        
-                except: overlap_cube.append(np.ones_like(pixgrid)*np.nan)
-        
-            main_overlap_map = np.max(overlap_cube, axis=0)
-            main_overlap_map = np.where(main_overlap_map==1, 1, 0)
-        
-            main_overlap_map = zoom(main_overlap_map, zoom=1/scale)
+
+                except: overlap_cube.append(np.ones_like(cube_data[0])*np.nan)
+
+            # assign a pixel as dark if it was *only* touched by dark shards
+            main_overlap_cube = []
+            for i in range(len(overlap_cube)):
+                main_overlap_cube.append(np.where(overlap_cube[i]>0, use_mask[i], np.nan)) # placeholder must be nan
+            main_overlap_cube = np.asarray(main_overlap_cube)
+            main_overlap_map = np.nanmin(main_overlap_cube, axis=0)
+            # with min, a pixel can only be 1 if it is 1 for all shards
 
         else: main_overlap_map = np.zeros_like(cube_data[0])
 
         # Save to FITS
         overlap_header = cube_wcs.to_header()
+
+        cubeheader = loadcube[0].header
+        overlap_header.insert(26, ('SIMLAVER', simlaver, 'SIMLA pipeline version'))
+        overlap_header.insert(27, ('AORKEY', int(cubeheader['AORKEY']), 'IRS area obeservation request key'))
+        overlap_header.insert(28, ('CHNLNUM', cubeheader['CHNLNUM'], 'IRS channel: 0=SL, 1=SH, 2=LL, 3=LH'))
+        overlap_header.insert(29, ('APERNAME', cubeheader['APERNAME'], 'IRS module and order'))
+        overlap_header.insert(30, ('PROGID', cubeheader['PROGID'], 'IRS Program ID'))
+        overlap_header.insert(31, ('OBJECT', cubeheader['OBJECT'], 'Target Name'))
+        overlap_header.insert(32, ('RAMPTIME', cubeheader['RAMPTIME'], '[sec] Ramp (total DCE) integration time'))
+        overlap_header.insert(33, ('MEAN_MJD', cubeheader['MEAN_MJD'], '[days] Mean Mod. Julian Date across AOR'))
+        overlap_header.insert(34, ('PTYPE', 'DARKMASK', 'SIMLA product type'))
+        
         overlap_hdu = fits.PrimaryHDU(data=main_overlap_map, header=overlap_header)
         overlap_hdu.writeto(savefile, overwrite=True)
         
         sys.stdout = stdout
 
-    def save_moment_zero_map(self, mapfile=None, cubefile=None):
+    def save_moment_zero_map(self, mapfile=None, cubefile=None, simlaver='-1'):
 
         '''
         Save a moment zero (or white light) map of the cube.
@@ -698,6 +812,8 @@ class SimlaCube:
         cubefile: (str or None) if None, presume the cube associated with SimlaCube.savename
                     if str, give the name of the cube to make a moment zero map for.
 
+        simlaver: (str) the version of the SIMLA run for the FITS header.
+
         '''
 
         if cubefile is None: cubefile = self.savename
@@ -705,13 +821,29 @@ class SimlaCube:
         if mapfile is None: mapfile = cubefile.replace('_cube.fits', '_mom0.fits')
 
         cube_data = fits.getdata(cubefile)
-        mom0_data = np.nanmedian(cube_data, axis=0)
+        mom0_data = np.nanmean(cube_data, axis=0)
         mom0_data = np.where(mom0_data==0, np.nan, mom0_data)
-
+        
         stdout = sys.stdout
         sys.stdout = open(os.devnull, 'w')
         
-        mom0_header = fits.getheader(cubefile)
+        cubeheader = fits.getheader(cubefile)
+        wcs = WCS(cubeheader, fobj=fits.open(cubefile), naxis=2)
+        header = wcs.to_header()
+        
+        mom0_header = wcs.to_header()
+        
+        mom0_header.insert(26, ('SIMLAVER', simlaver, 'SIMLA pipeline version'))
+        mom0_header.insert(27, ('BUNIT', 'MJy/sr', 'Units of surface brightness data'))
+        mom0_header.insert(28, ('AORKEY', int(cubeheader['AORKEY']), 'IRS area obeservation request key'))
+        mom0_header.insert(29, ('CHNLNUM', cubeheader['CHNLNUM'], 'IRS channel: 0=SL, 1=SH, 2=LL, 3=LH'))
+        mom0_header.insert(30, ('APERNAME', cubeheader['APERNAME'], 'IRS module and order'))
+        mom0_header.insert(31, ('PROGID', cubeheader['PROGID'], 'IRS Program ID'))
+        mom0_header.insert(32, ('OBJECT', cubeheader['OBJECT'], 'Target Name'))
+        mom0_header.insert(33, ('RAMPTIME', cubeheader['RAMPTIME'], '[sec] Ramp (total DCE) integration time'))
+        mom0_header.insert(34, ('MEAN_MJD', cubeheader['MEAN_MJD'], '[days] Mean Mod. Julian Date across AOR'))
+        mom0_header.insert(35, ('PTYPE', 'Moment 0 Map', 'SIMLA product type'))
+        
         mom0_hdu = fits.PrimaryHDU(data=mom0_data, header=mom0_header)
         mom0_hdu.writeto(mapfile, overwrite=True)
         
@@ -720,10 +852,10 @@ class SimlaCube:
     def save_spectrum(self, specfile=None, mask=None, cubefile=None):
 
         '''
-        Save a spectrum from the cube. The spectrum will be an *average* surface brightness.
+        Save a spectrum from the cube as an IPAC table. The spectrum will be an *average* surface brightness.
 
-        specfile: (str or None) specify the save name for the spectrum .dat file. 
-                     If None, it is saved with an automatically generated name next to the cube (_spec.dat). 
+        specfile: (str or None) specify the save name for the spectrum .tbl file. 
+                     If None, it is saved with an automatically generated name next to the cube (_spec.tbl). 
 
         mask: (arr or None) if not None, give a numpy array corresponding to pixels to extract
                     for the spectrum. 1=extract, 0=don't extract
@@ -753,8 +885,18 @@ class SimlaCube:
         spectrum = np.nansum(cubedata*maskcube, axis=(1,2))/np.nansum(maskcube, axis=(1,2))
         unc_spectrum = np.sqrt(np.nansum((unc_cube*maskcube)**2, axis=(1,2)))/np.nansum(maskcube, axis=(1,2))
 
-        specdata = np.asarray([spectral_axis, spectrum, unc_spectrum]).T
-
-        if specfile is None: specfile = cubefile.replace('_cube.fits', '_spec.dat')
-        np.savetxt(specfile, specdata)
+        specdata = pd.DataFrame({
+            'lam': spectral_axis,
+            'Inu': spectrum,
+            'Inu_unc': unc_spectrum,
+        })
         
+        table_data = Table.from_pandas(specdata)
+        
+        table_data['lam'].unit = u.micron
+        table_data['Inu'].unit = u.MJy/u.sr
+        table_data['Inu_unc'].unit = u.MJy/u.sr
+        
+        if specfile is None: specfile = cubefile.replace('_cube.fits', '_spec.tbl')
+        table_data.write(specfile, format='ipac', overwrite=True)
+

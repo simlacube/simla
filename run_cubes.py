@@ -24,6 +24,7 @@ import glob
 import pandas as pd
 from astropy.io import fits
 from multiprocessing import Pool, Process, Queue
+from tqdm import tqdm
 
 from simladb import query, DB_bcd
 from simla_variables import SimlaVar
@@ -50,13 +51,22 @@ aorkeys, dceids, fnames, progids, chnlnums = \
 # Interprets the txt file containing the inputs
 inputs = run_inputs_loader(simlapath+'run_inputs.txt')
 
-# Set up the run directory
+# Set up the run directories
 run_name = inputs['run_name']
 if not os.path.exists(runpath+run_name):
     os.mkdir(runpath+run_name)
 
-# Copy the run inputs into the new directory
-os.system('cp '+simlapath+'run_inputs.txt '+runpath+run_name+'/used_run_inputs.txt')
+productpath = runpath+run_name+'/products/'
+ancillarypath = runpath+run_name+'/ancillary/'
+if not os.path.exists(productpath):
+    os.mkdir(productpath)
+if not os.path.exists(ancillarypath):
+    os.mkdir(ancillarypath)
+
+simlaver = inputs['simla_version']
+
+# Copy the run inputs into the ancillary directory
+os.system('cp '+simlapath+'run_inputs.txt '+ancillarypath+'used_run_inputs.txt')
 
 # Check if there is supposed to be a quality assurance sample
 # If so, prepare a list of unique tags for the sample
@@ -75,18 +85,24 @@ def run_cubes_in_progid(progid):
 
     log_queue.put(str(datetime.datetime.now())+': '+'starting PROGID:'+str(progid))
 
-    progpath = runpath+run_name+'/PROGID-'+str(progid)+'/'
-    if not os.path.exists(progpath):
-        os.mkdir(progpath)
+    prod_progpath = productpath+'PROGID-'+str(progid)+'/'
+    anc_progpath = ancillarypath+'PROGID-'+str(progid)+'/'
+    if not os.path.exists(prod_progpath):
+        os.mkdir(prod_progpath)
+    if not os.path.exists(anc_progpath):
+        os.mkdir(anc_progpath)
 
     for aorkey in sorted(np.unique(aorkeys[np.where(progids==progid)])):
 
         # Try to fix some memory issues.
         gc.collect()
 
-        aorpath = progpath+'AORKEY-'+str(aorkey)+'/'
-        if not os.path.exists(aorpath):
-            os.mkdir(aorpath)
+        prod_aorpath = prod_progpath+'AORKEY-'+str(aorkey)+'/'
+        anc_aorpath = anc_progpath+'AORKEY-'+str(aorkey)+'/'
+        if not os.path.exists(prod_aorpath):
+            os.mkdir(prod_aorpath)
+        if not os.path.exists(anc_aorpath):
+            os.mkdir(anc_aorpath)
 
         for chnlnum in sorted(np.unique(chnlnums[np.where((progids==progid) & \
                                                           (aorkeys==aorkey))])):
@@ -117,22 +133,32 @@ def run_cubes_in_progid(progid):
             
             # If the map has multiple targets, need to make multiple cubes
             if cube.OBJTYPE == 'TargetMulti' or cube.OBJTYPE == 'TargetFixedCluster':
-                sample_header = fits.getheader(cube.bcd_file_names[0])
-                n_fovid = len(np.unique([fits.getheader(i)['FOVID'] for i in cube.bcd_file_names]))
-                nbcd_per_map = sample_header['STEPSPAR'] * sample_header['STEPSPER'] * n_fovid 
-                n_unique_bcds = len(cube.bcd_file_names) / sample_header['NCYCLES']
-                n_maps = int(n_unique_bcds / nbcd_per_map)
-                nbcd_per_map = nbcd_per_map * sample_header['NCYCLES']
-                sorted_bcds = sorted(cube.bcd_file_names)
-                letters = list(string.ascii_uppercase)
+        
+                map_bcds = []
+                map_starting_bcd = 0
+                bcdlist = sorted(cube.bcd_file_names)
+                while map_starting_bcd < len(bcdlist):
+                
+                    header = fits.getheader(bcdlist[map_starting_bcd])
+                    expected_this_map = header['STEPSPAR'] * header['STEPSPER'] * header['NCYCLES']
+                    
+                    bcds_this_map = bcdlist[map_starting_bcd: map_starting_bcd+expected_this_map]
+                    map_bcds.append(bcds_this_map)
+                    
+                    map_starting_bcd = map_starting_bcd+expected_this_map
+
                 cubelist, savenames = [], []
-                for mapnum in range(n_maps):
-                    bcds_in_map = sorted_bcds[mapnum*nbcd_per_map: (mapnum*nbcd_per_map)+nbcd_per_map]
+                for mapnum in range(len(map_bcds)):
+                    
                     subcube = copy.deepcopy(cube)
-                    subcube.bcd_file_names = np.asarray(bcds_in_map)
-                    savename = str(aorkey)+letters[mapnum]+'_'+mod
+
+                    subcube.multi_key = str(mapnum+1)
+                    subcube.bcd_file_names = np.asarray(map_bcds[mapnum])
+                    savename = str(aorkey)+'-'+subcube.multi_key+'_'+mod
+                    
                     cubelist.append(subcube)
                     savenames.append(savename)
+                
             else: 
                 cubelist = [cube]
                 savenames = [str(aorkey)+'_'+mod]
@@ -154,7 +180,8 @@ def run_cubes_in_progid(progid):
                         log_queue.put(str(datetime.datetime.now())+': building cube '+savename+'...')
 
                         # Now we actually make the cubes
-                        cube.build_cube(suborder=suborder, savename=aorpath+savename, no_data=no_data)
+                        cube.build_cube(suborder=suborder, savename=prod_aorpath+savename, \
+                                        no_data=no_data, simlaver=simlaver)
                         end = time.time()
                         build_time = round((end-start), 1)
                         log_queue.put(str(datetime.datetime.now())+': successfully built '+savename+' in '+\
@@ -178,11 +205,11 @@ def run_cubes_in_progid(progid):
 
                     try:
                         # Saving additional information
-                        cube.save_cpj_params(delete_cpj=delete_cpj) # .cpj files take a lot of storage!
-                        cube.save_background()
-                        cube.save_background_depth_map()
-                        cube.save_shardlist()
-                        cube.save_stats()
+                        cube.save_cpj_params(delete_cpj=delete_cpj, move_to=anc_aorpath) # .cpj files take a lot of storage!
+                        cube.save_background(bg_savename=anc_aorpath+savename.replace('_cube.fits', '_bg'))
+                        cube.save_background_depth_map(dmap_name=anc_aorpath+savename.replace('_cube.fits', '_bgdepth'))
+                        cube.save_shardlist(shardlist_name=anc_aorpath+savename.replace('_cube.fits', '_shardlist.csv'))
+                        cube.save_stats(statfile_name=anc_aorpath+savename.replace('_cube.fits', '_stats.csv'))
                     except Exception as e:
                         log_queue.put(str(datetime.datetime.now())+': error saving additional information for AORKEY='+\
                                       str(aorkey)+'. Error: '+str(e))
@@ -190,35 +217,41 @@ def run_cubes_in_progid(progid):
 
                     try:
                         # Save the non-cube deliverable data products
-                        cube.make_dark_mask()
-                        cube.save_moment_zero_map()
+                        cube.make_dark_mask(simlaver=simlaver)
+                        cube.save_moment_zero_map(simlaver=simlaver)
                         cube.save_spectrum()
+                        if chnlnum == 0: 
+                            cube.save_spectrum(specfile=prod_aorpath+savename.replace('_cube.fits', '_spec-iocorr.tbl'), 
+                                               cubefile=prod_aorpath+savename.replace('.fits', '-iocorr.fits'))
+                            
                     except Exception as e:
                         log_queue.put(str(datetime.datetime.now())+': error saving non-cube deliverable products for AORKEY='+\
                                       str(aorkey)+'. Error: '+str(e))
                         continue
 
                     try:
+                        qa_savename_template = anc_aorpath+savename.replace('_cube.fits', '')
+                        
                         # Create the quality assurance PDF
-                        darkmask = fits.getdata(cube.savename.replace('.fits', '_darkmask.fits'))
+                        darkmask = fits.getdata(cube.savename.replace('_cube.fits', '_darkmask.fits'))
                         brightmask = np.where(darkmask==0, 1, 0)
-
-                        cube.save_spectrum(specfile=cube.savename.replace('.fits', '_darkspec.dat'), \
+                        
+                        cube.save_spectrum(specfile=qa_savename_template+'_darkspec.tbl', \
                                            mask=darkmask)
-                        cube.save_spectrum(specfile=cube.savename.replace('.fits', '_brightspec.dat'), \
+                        cube.save_spectrum(specfile=qa_savename_template+'_brightspec.tbl', \
                                            mask=brightmask)
                         
                         if chnlnum == 0:
-                            cube.save_spectrum(cubefile=cube.savename.replace('.fits', '_iocorr.fits'), \
-                                               specfile=cube.savename.replace('.fits', '_iocorr-darkspec.dat'), \
+                            cube.save_spectrum(cubefile=cube.savename.replace('_cube.fits', '_cube-iocorr.fits'), \
+                                               specfile=qa_savename_template+'_darkspec-iocorr.tbl', \
                                                mask=darkmask)
-                            cube.save_spectrum(cubefile=cube.savename.replace('.fits', '_iocorr.fits'), \
-                                               specfile=cube.savename.replace('.fits', '_iocorr-brightspec.dat'), \
+                            cube.save_spectrum(cubefile=cube.savename.replace('_cube.fits', '_cube-iocorr.fits'), \
+                                               specfile=qa_savename_template+'_brightspec-iocorr.tbl', \
                                                mask=brightmask)
                             qa_iocorr = True
                         else: qa_iocorr = False
 
-                        generate_QA_form(cube.savename, cube.savename.replace('.fits', '_QAplots.pdf'), \
+                        generate_QA_form(cube.savename, anc_aorpath, qa_savename_template+'_QAplots.pdf', \
                                          iocorr_spectra=qa_iocorr)
 
                     except Exception as e:
@@ -240,25 +273,25 @@ def init_worker(queue):
 
 # Initialize the workers and run
 ps = np.unique(progids)
+cal_progids = np.genfromtxt(SimlaVar().simlapath+'calib/SIRTFcal_progids.txt')
+ps = np.asarray([i for i in ps if i not in cal_progids]) # exclude SIRTF Calibration programs
 if __name__ == '__main__':
 
     log_queue = Queue()
     logger = Process(target=write_log, args=(log_queue,))
     logger.start()
-    
-    with Pool(processes=SimlaVar().processors, initializer=init_worker, initargs=(log_queue,)) as pool: 
-        for _ in pool.imap_unordered(run_cubes_in_progid, ps):
-            pass
 
+    with Pool(processes=SimlaVar().processors, initializer=init_worker, initargs=(log_queue,)) as pool: 
+        for _ in tqdm(pool.imap_unordered(run_cubes_in_progid, ps), total=len(ps)):
+            pass
+    
     log_queue.put(str(datetime.datetime.now())+': compiling cube stats CSV.')
-    statsfiles = glob.glob(runpath+run_name+'/**/**/**/*stats.csv')
+    statsfiles = glob.glob(ancillarypath+'/**/**/*stats.csv')
     master_csv = pd.concat((pd.read_csv(f) for f in statsfiles), ignore_index=True)
-    master_csv.to_csv(runpath+run_name+'/cube_stats.csvs', index=False)
+    master_csv.to_csv(productpath+'/cube_stats.csv', index=False)
 
     run_end = time.time()
     log_queue.put('Done! This run took '+str(round((run_end-run_start)/3600, 2))+'hrs to complete.')
 
     log_queue.put(None)
     logger.join()
-
-    
