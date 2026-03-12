@@ -23,7 +23,7 @@ import warnings
 warnings.filterwarnings('ignore')
 
 from simla_variables import SimlaVar
-from simladb import query, DB_bcd, DB_bcdwise, DB_shardpos, setup_judge1, scorners
+from simladb import query, DB_bcd, DB_bcdwise, DB_shardpos, setup_judge1, simladbX
 from simla_utils import make_wise_bg, DN_to_MJypsr, photometry, fmt_scorners
 
 wisepath = SimlaVar().wisepath
