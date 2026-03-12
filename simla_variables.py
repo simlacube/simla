@@ -31,7 +31,7 @@ class SimlaVar:
         self.sd_median_pixval_cut = 20
 
         # Use these to exclude certain BCDs
-        self.banned_objtypes = ['TargetMovingSingle', 'TargetMovingCluster', 'TargetMulti']
+        self.banned_objtypes = ['TargetMovingSingle', 'TargetMovingCluster']
         self.banned_objects = ['NCVZ-dark-spot']
         self.banned_aorkeys = [9107456] # has no uncertainties for some reason
 
