@@ -207,10 +207,10 @@ class SimlaCube:
                     final_mask.extend(trunc_remote_mask)
                     this_shard_depth += len(trunc_remote_mask)
 
-                # Record the rank
-                if this_shard_depth == self.min_shard_depth: rank_string += '2'
-                elif 0 < this_shard_depth < self.min_shard_depth: rank_string += '3'
-                elif this_shard_depth == 0: rank_string += '4'
+                    # Record the rank
+                    if this_shard_depth == self.min_shard_depth: rank_string += '2'
+                    elif 0 < this_shard_depth < self.min_shard_depth: rank_string += '3'
+                    elif this_shard_depth == 0: rank_string += '4'
 
         # Final selection for shards we are going to use
         final_mask = np.asarray(final_mask)
@@ -364,7 +364,7 @@ class SimlaCube:
             self.bg_n_sameaor = int(np.sum(np.where(aorkeys==self.AORKEY, 1, 0)))
             self.bg_n_otheraor = int(np.sum(np.where(aorkeys!=self.AORKEY, 1, 0)))
             self.bg_mean_judge_agreement = np.nanmean(judge1s/judge2s)
-            self.mean_background_rank = round(np.mean([int(i) for i in self.background_rank]), 2)
+            self.mean_background_rank = round(np.mean([int(i) for i in self.background_rank]), 3)
 
         else:
 
@@ -480,7 +480,7 @@ class SimlaCube:
         ]
         values = [
             simlaver, self.SAMPSPEC, self.SAMPSPAT, \
-            len(self.dceids), round(self.MJD_mean, 5), self.ZODI_12, self.ISM_12, self.mean_background_rank, \
+            len(self.bcd_file_names), round(self.MJD_mean, 5), self.ZODI_12, self.ISM_12, self.mean_background_rank, \
             self.bg_mean_deltazodi, self.bg_mean_deltatime, self.bg_n_sameaor, \
             self.bg_n_otheraor, self.multi_key, False, 'CUBE',
         ]
@@ -629,8 +629,8 @@ class SimlaCube:
             'SAMPSPEC': self.SAMPSPEC,
             'BG_DZODI': self.bg_mean_deltazodi,
             'BG_DTIME': self.bg_mean_deltatime,
-            'BG_RANK': str(self.background_rank),
-            'BG_SHARD_RANKS': self.mean_background_rank,
+            'BG_RANK': self.mean_background_rank,
+            'BG_SHARD_RANKS': str(self.background_rank),
             'BG_IN': self.bg_n_sameaor,
             'BG_OUT': self.bg_n_otheraor,
         }]).to_csv(statfile_name, index=False)
