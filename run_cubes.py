@@ -193,15 +193,20 @@ def run_cubes_in_progid(progid):
 
                     # If SL, run sl_io_correct and save an alternate cube
                     if chnlnum == 0:
-                        try:
-                            cube.run_sl_io_correct()
-                            log_queue.put(str(datetime.datetime.now())+': successfully ran IO correct for '+\
-                                          savename+' in '+\
-                                          str(build_time)+' sec')
-                        except Exception as e:
-                            log_queue.put(str(datetime.datetime.now())+': error running IO correct for AORKEY='+\
-                                          str(aorkey)+'. Error: '+str(e))
-                            continue
+                        # sl_io_correct fails if the number of BCDs in a cube is 1.
+                        if len(cube.bcd_file_names) > 1:
+                            try:
+                                cube.run_sl_io_correct()
+                                log_queue.put(str(datetime.datetime.now())+': successfully ran IO correct for '+\
+                                              savename+' in '+\
+                                              str(build_time)+' sec')
+                            except Exception as e:
+                                log_queue.put(str(datetime.datetime.now())+': error running IO correct for AORKEY='+\
+                                              str(aorkey)+'. Error: '+str(e))
+                                continue
+                        else:
+                            log_queue.put(str(datetime.datetime.now())+': did not run sl_io_correct for AORKEY='+\
+                                          str(aorkey)+'. Number of BCDs=1.')
 
                     try:
                         # Saving additional information
