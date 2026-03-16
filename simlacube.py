@@ -60,7 +60,7 @@ class SimlaCube:
         # target_multi only
         self.multi_key = 'N/A'
 
-        header0 = fits.getheader(self.bcd_file_names[0])
+        self.header0 = fits.getheader(self.bcd_file_names[0])
 
         try:
             
@@ -69,8 +69,8 @@ class SimlaCube:
             
             threshold = 0.1 # within this for MARGINAL
             
-            spatial_overlap = 1-(header0['SIZEPAR']/length)
-            spectral_overlap = 1-(header0['SIZEPER']/width)
+            spatial_overlap = 1-(self.header0['SIZEPAR']/length)
+            spectral_overlap = 1-(self.header0['SIZEPER']/width)
             
             if spatial_overlap < 0: self.SAMPSPAT = 'SPARSE'
             elif 0 <= spatial_overlap <= threshold: self.SAMPSPAT = 'MARGINAL'
@@ -79,7 +79,7 @@ class SimlaCube:
             if spectral_overlap < 0: self.SAMPSPEC = 'SPARSE'
             elif 0 <= spectral_overlap <= threshold: self.SAMPSPEC = 'MARGINAL'
             elif threshold < spectral_overlap: self.SAMPSPEC = 'ROBUST'
-            if header0['STEPSPER'] == 1: sself.SAMPSPEC= 'SLIT'
+            if self.header0['STEPSPER'] == 1: sself.SAMPSPEC= 'SLIT'
 
         except:
             self.SAMPSPAT = 'N/A'
@@ -473,21 +473,21 @@ class SimlaCube:
             return header
 
         keywords = [
-            'SIMLAVER', 'SAMPSPAT', 'SAMPSPEC', 'N_BCDS', 'MEAN_MJD',
+            'SIMLAVER', 'SAMPSPEC', 'SAMPSPAT', 'N_BCDS', 'MEAN_MJD',
             'ZODI12UM', 'ISM12UM', 
             'BG_RANK', 'BG_DZODI', 'BG_DTIME', 'BG_IN', 'BG_OUT',
-            'IOCORR', 'PTYPE',
+            'TMULTNUM', 'IOCORR', 'PTYPE',
         ]
         values = [
             simlaver, self.SAMPSPAT, self.SAMPSPEC, \
             len(self.dceids), round(self.MJD_mean, 5), self.ZODI_12, self.ISM_12, self.mean_background_rank, \
             self.bg_mean_deltazodi, self.bg_mean_deltatime, self.bg_n_sameaor, \
-            self.bg_n_otheraor, False, 'CUBE',
+            self.bg_n_otheraor, self.multi_key, False, 'CUBE',
         ]
         comments = [
-            'SIMLA pipeline version',
-            'Parallel pixel redundancy classification',
+            'Version of built SIMLA cube',
             'Perpendicular pixel redundancy classification',
+            'Parallel pixel redundancy classification',
             'Number of constituent BCDs in cube',
             '[days] Mean Mod. Julian Date across AOR',
             '[MJy/sr] model zodiacal intensity at 12 micron',
@@ -497,6 +497,7 @@ class SimlaCube:
             '[days] mean delta time across used BG obs',
             'Number of BG shards from the cube AOR',
             'Number of BG shards NOT from the cube AOR',
+            'Cube number if TargetMulti/TargetFixedCluster',
             'True if this is IO signal-corrected (SL only)',
             'SIMLA product type',
         ]
@@ -614,24 +615,24 @@ class SimlaCube:
             'OBJNAME': self.IRS_object_name,
             'PROGID': self.PROGID,
             'AORKEY': self.AORKEY,
-            'TARGMULTI_KEY': self.multi_key,
+            'TMULTNUM': self.multi_key,
             'CHNLNUM': self.CHNLNUM,
             'SUBORDER': self.suborder,
-            'MEAN_RA': self.ref_coords[0], # change to RA_FOV
-            'MEAN_DEC': self.ref_coords[1], # change to DEC_FOV
+            'RA_FOV': self.header0['RA_FOV'], 
+            'DEC_FOV': self.header0['DEC_FOV'], 
             'RAMPTIME': self.RAMPTIME,
             'MEAN_MJD': round(self.MJD_mean, 5),
-            'ZODI_12um': self.ZODI_12,
-            'ISM_12um': self.ISM_12,
+            'ZODI_12UM': self.ZODI_12,
+            'ISM_12UM': self.ISM_12,
             'N_BCDS': len(self.bcd_file_names),
             'SAMPSPAT': self.SAMPSPAT, 
             'SAMPSPEC': self.SAMPSPEC,
-            'BG_MEAN_DELTAZODI': self.bg_mean_deltazodi,
-            'BG_MEAN_DELTATIME': self.bg_mean_deltatime,
+            'BG_DZODI': self.bg_mean_deltazodi,
+            'BG_DTIME': self.bg_mean_deltatime,
             'BG_RANK': str(self.background_rank),
-            'BG_MEAN_RANK': self.mean_background_rank,
-            'BG_N_SAMEAOR': self.bg_n_sameaor,
-            'BG_N_OTHERAOR': self.bg_n_otheraor,
+            'BG_SHARD_RANKS': self.mean_background_rank,
+            'BG_IN': self.bg_n_sameaor,
+            'BG_OUT': self.bg_n_otheraor,
         }]).to_csv(statfile_name, index=False)
 
     def make_dark_mask(self, savefile=None, simlaver='-1'):
@@ -842,7 +843,7 @@ class SimlaCube:
         mom0_header.insert(32, ('OBJECT', cubeheader['OBJECT'], 'Target Name'))
         mom0_header.insert(33, ('RAMPTIME', cubeheader['RAMPTIME'], '[sec] Ramp (total DCE) integration time'))
         mom0_header.insert(34, ('MEAN_MJD', cubeheader['MEAN_MJD'], '[days] Mean Mod. Julian Date across AOR'))
-        mom0_header.insert(35, ('PTYPE', 'Moment 0 Map', 'SIMLA product type'))
+        mom0_header.insert(35, ('PTYPE', 'MOMENT0', 'SIMLA product type'))
         
         mom0_hdu = fits.PrimaryHDU(data=mom0_data, header=mom0_header)
         mom0_hdu.writeto(mapfile, overwrite=True)

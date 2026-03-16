@@ -288,7 +288,7 @@ if __name__ == '__main__':
     log_queue.put(str(datetime.datetime.now())+': compiling cube stats CSV.')
     statsfiles = glob.glob(ancillarypath+'/**/**/*stats.csv')
     master_csv = pd.concat((pd.read_csv(f) for f in statsfiles), ignore_index=True)
-    master_csv.to_csv(productpath+'/cube_stats.csv', index=False)
+    master_csv.to_csv(productpath+'/cube_stats_'+simlaver+'.csv', index=False)
 
     run_end = time.time()
     log_queue.put('Done! This run took '+str(round((run_end-run_start)/3600, 2))+'hrs to complete.')

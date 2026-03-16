@@ -50,7 +50,7 @@ for wfile in tqdm(unique_irstarget_wise):
     usable_wise = DN_to_MJypsr(bgsub_data, 3)
 
     # Get all shard corners associated with this tile
-    sharddata = query(simladb.select( \
+    sharddata = query(setup_judge1.select( \
             DB_shardpos.DCEID, DB_shardpos.CHNLNUM, DB_shardpos.SUBORDER, DB_shardpos.SHARD, *scorners) \
         .where(((DB_bcd.CHNLNUM==0)|(DB_bcd.CHNLNUM==2)) & (DB_bcdwise.WISE_FILE==wfile)))
     
