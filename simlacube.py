@@ -72,14 +72,14 @@ class SimlaCube:
             spatial_overlap = 1-(self.header0['SIZEPAR']/length)
             spectral_overlap = 1-(self.header0['SIZEPER']/width)
             
-            if spatial_overlap < 0: self.SAMPSPAT = 'SPARSE'
+            if spatial_overlap < 0 or self.header0['STEPSPAR'] == 1: self.SAMPSPAT = 'SPARSE'
             elif 0 <= spatial_overlap <= threshold: self.SAMPSPAT = 'MARGINAL'
             elif threshold < spatial_overlap: self.SAMPSPAT = 'ROBUST'
             
             if spectral_overlap < 0: self.SAMPSPEC = 'SPARSE'
             elif 0 <= spectral_overlap <= threshold: self.SAMPSPEC = 'MARGINAL'
             elif threshold < spectral_overlap: self.SAMPSPEC = 'ROBUST'
-            if self.header0['STEPSPER'] == 1: sself.SAMPSPEC= 'SLIT'
+            if self.header0['STEPSPER'] == 1: self.SAMPSPEC = 'SLIT'
 
         except:
             self.SAMPSPAT = 'N/A'
@@ -479,7 +479,7 @@ class SimlaCube:
             'TMULTNUM', 'IOCORR', 'PTYPE',
         ]
         values = [
-            simlaver, self.SAMPSPAT, self.SAMPSPEC, \
+            simlaver, self.SAMPSPEC, self.SAMPSPAT, \
             len(self.dceids), round(self.MJD_mean, 5), self.ZODI_12, self.ISM_12, self.mean_background_rank, \
             self.bg_mean_deltazodi, self.bg_mean_deltatime, self.bg_n_sameaor, \
             self.bg_n_otheraor, self.multi_key, False, 'CUBE',
