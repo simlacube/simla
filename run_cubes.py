@@ -161,7 +161,7 @@ def run_cubes_in_progid(progid):
                 
             else: 
                 cubelist = [cube]
-                savenames = [str(aorkey)+'_'+mod]
+                savenames = [str(aorkey)+'-'+str(subcube.multi_key)+'_'+mod]
 
             for cubeindex in range(len(cubelist)):
                 cube = cubelist[cubeindex]
