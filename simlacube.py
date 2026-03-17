@@ -57,8 +57,7 @@ class SimlaCube:
         self.ISM_12 = np.unique(q['ISM_12'].to_numpy())[0]
         self.ref_coords = (np.nanmean(q['RA_FOV'].to_numpy()), np.nanmean(q['DEC_FOV'].to_numpy()))
 
-        # target_multi only
-        self.multi_key = 'N/A'
+        self.multi_key = 0
 
         self.header0 = fits.getheader(self.bcd_file_names[0])
 
