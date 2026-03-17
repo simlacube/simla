@@ -883,6 +883,8 @@ class SimlaCube:
         mask = np.where(mask==0, np.nan, mask)
 
         maskcube = np.asarray([mask for i in range(len(cubedata))])
+        maskcube = np.where(cubedata!=cubedata, np.nan, maskcube)
+        
         spectrum = np.nansum(cubedata*maskcube, axis=(1,2))/np.nansum(maskcube, axis=(1,2))
         unc_spectrum = np.sqrt(np.nansum((unc_cube*maskcube)**2, axis=(1,2)))/np.nansum(maskcube, axis=(1,2))
 
