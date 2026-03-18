@@ -496,7 +496,7 @@ class SimlaCube:
             '[days] mean delta time across used BG obs',
             'Number of BG shards from the cube AOR',
             'Number of BG shards NOT from the cube AOR',
-            'Cube number if TargetMulti/TargetFixedCluster',
+            'Cube number in AOR (0 if single target)',
             'True if this is IO signal-corrected (SL only)',
             'SIMLA product type',
         ]
@@ -788,13 +788,14 @@ class SimlaCube:
         cubeheader = loadcube[0].header
         overlap_header.insert(26, ('SIMLAVER', simlaver, 'SIMLA pipeline version'))
         overlap_header.insert(27, ('AORKEY', int(cubeheader['AORKEY']), 'IRS area obeservation request key'))
-        overlap_header.insert(28, ('CHNLNUM', cubeheader['CHNLNUM'], 'IRS channel: 0=SL, 1=SH, 2=LL, 3=LH'))
-        overlap_header.insert(29, ('APERNAME', cubeheader['APERNAME'], 'IRS module and order'))
-        overlap_header.insert(30, ('PROGID', cubeheader['PROGID'], 'IRS Program ID'))
-        overlap_header.insert(31, ('OBJECT', cubeheader['OBJECT'], 'Target Name'))
-        overlap_header.insert(32, ('RAMPTIME', cubeheader['RAMPTIME'], '[sec] Ramp (total DCE) integration time'))
-        overlap_header.insert(33, ('MEAN_MJD', cubeheader['MEAN_MJD'], '[days] Mean Mod. Julian Date across AOR'))
-        overlap_header.insert(34, ('PTYPE', 'DARKMASK', 'SIMLA product type'))
+        overlap_header.insert(28, ('TMULTNUM', int(cubeheader['TMULTNUM']), 'Cube number in AOR (0 if single target)'))
+        overlap_header.insert(29, ('CHNLNUM', cubeheader['CHNLNUM'], 'IRS channel: 0=SL, 1=SH, 2=LL, 3=LH'))
+        overlap_header.insert(30, ('APERNAME', cubeheader['APERNAME'], 'IRS module and order'))
+        overlap_header.insert(31, ('PROGID', cubeheader['PROGID'], 'IRS Program ID'))
+        overlap_header.insert(32, ('OBJECT', cubeheader['OBJECT'], 'Target Name'))
+        overlap_header.insert(33, ('RAMPTIME', cubeheader['RAMPTIME'], '[sec] Ramp (total DCE) integration time'))
+        overlap_header.insert(34, ('MEAN_MJD', cubeheader['MEAN_MJD'], '[days] Mean Mod. Julian Date across AOR'))
+        overlap_header.insert(35, ('PTYPE', 'DARKMASK', 'SIMLA product type'))
         
         overlap_hdu = fits.PrimaryHDU(data=main_overlap_map, header=overlap_header)
         overlap_hdu.writeto(savefile, overwrite=True)
@@ -836,13 +837,14 @@ class SimlaCube:
         mom0_header.insert(26, ('SIMLAVER', simlaver, 'SIMLA pipeline version'))
         mom0_header.insert(27, ('BUNIT', 'MJy/sr', 'Units of surface brightness data'))
         mom0_header.insert(28, ('AORKEY', int(cubeheader['AORKEY']), 'IRS area obeservation request key'))
-        mom0_header.insert(29, ('CHNLNUM', cubeheader['CHNLNUM'], 'IRS channel: 0=SL, 1=SH, 2=LL, 3=LH'))
-        mom0_header.insert(30, ('APERNAME', cubeheader['APERNAME'], 'IRS module and order'))
-        mom0_header.insert(31, ('PROGID', cubeheader['PROGID'], 'IRS Program ID'))
-        mom0_header.insert(32, ('OBJECT', cubeheader['OBJECT'], 'Target Name'))
-        mom0_header.insert(33, ('RAMPTIME', cubeheader['RAMPTIME'], '[sec] Ramp (total DCE) integration time'))
-        mom0_header.insert(34, ('MEAN_MJD', cubeheader['MEAN_MJD'], '[days] Mean Mod. Julian Date across AOR'))
-        mom0_header.insert(35, ('PTYPE', 'MOMENT0', 'SIMLA product type'))
+        mom0_header.insert(29, ('TMULTNUM', int(cubeheader['TMULTNUM']), 'Cube number in AOR (0 if single target)'))
+        mom0_header.insert(30, ('CHNLNUM', cubeheader['CHNLNUM'], 'IRS channel: 0=SL, 1=SH, 2=LL, 3=LH'))
+        mom0_header.insert(31, ('APERNAME', cubeheader['APERNAME'], 'IRS module and order'))
+        mom0_header.insert(32, ('PROGID', cubeheader['PROGID'], 'IRS Program ID'))
+        mom0_header.insert(33, ('OBJECT', cubeheader['OBJECT'], 'Target Name'))
+        mom0_header.insert(34, ('RAMPTIME', cubeheader['RAMPTIME'], '[sec] Ramp (total DCE) integration time'))
+        mom0_header.insert(35, ('MEAN_MJD', cubeheader['MEAN_MJD'], '[days] Mean Mod. Julian Date across AOR'))
+        mom0_header.insert(36, ('PTYPE', 'MOMENT0', 'SIMLA product type'))
         
         mom0_hdu = fits.PrimaryHDU(data=mom0_data, header=mom0_header)
         mom0_hdu.writeto(mapfile, overwrite=True)
