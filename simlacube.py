@@ -72,12 +72,12 @@ class SimlaCube:
             spectral_overlap = 1-(self.header0['SIZEPER']/width)
             
             if spatial_overlap < 0 or self.header0['STEPSPAR'] == 1: self.SAMPSPAT = 'SPARSE'
-            elif 0 <= spatial_overlap <= threshold: self.SAMPSPAT = 'MARGINAL'
-            elif threshold < spatial_overlap: self.SAMPSPAT = 'ROBUST'
+            elif 0 <= spatial_overlap < threshold: self.SAMPSPAT = 'MARGINAL'
+            elif threshold <= spatial_overlap: self.SAMPSPAT = 'ROBUST'
             
             if spectral_overlap < 0: self.SAMPSPEC = 'SPARSE'
-            elif 0 <= spectral_overlap <= threshold: self.SAMPSPEC = 'MARGINAL'
-            elif threshold < spectral_overlap: self.SAMPSPEC = 'ROBUST'
+            elif 0 <= spectral_overlap < threshold: self.SAMPSPEC = 'MARGINAL'
+            elif threshold <= spectral_overlap: self.SAMPSPEC = 'ROBUST'
             if self.header0['STEPSPER'] == 1: self.SAMPSPEC = 'SLIT'
 
         except:
