@@ -152,16 +152,16 @@ def run_cubes_in_progid(progid):
                     
                     subcube = copy.deepcopy(cube)
 
-                    subcube.multi_key = str(mapnum+1)
+                    subcube.multi_key = mapnum+1
                     subcube.bcd_file_names = np.asarray(map_bcds[mapnum])
-                    savename = str(aorkey)+'-'+subcube.multi_key+'_'+mod
+                    savename = str(aorkey)+'-'+str(subcube.multi_key)+'_'+mod
                     
                     cubelist.append(subcube)
                     savenames.append(savename)
                 
             else: 
                 cubelist = [cube]
-                savenames = [str(aorkey)+'_'+mod]
+                savenames = [str(aorkey)+'-'+str(subcube.multi_key)+'_'+mod]
 
             for cubeindex in range(len(cubelist)):
                 cube = cubelist[cubeindex]
@@ -192,7 +192,11 @@ def run_cubes_in_progid(progid):
                         continue
 
                     # If SL, run sl_io_correct and save an alternate cube
-                    if chnlnum == 0:
+                    # note: sl_io_correct fails if the number of BCDs in a cube is 1.
+                    do_io_correct = False
+                    if chnlnum == 0 and len(cube.bcd_file_names) > 1: do_io_correct = True
+                        
+                    if do_io_correct:
                         try:
                             cube.run_sl_io_correct()
                             log_queue.put(str(datetime.datetime.now())+': successfully ran IO correct for '+\
@@ -202,6 +206,9 @@ def run_cubes_in_progid(progid):
                             log_queue.put(str(datetime.datetime.now())+': error running IO correct for AORKEY='+\
                                           str(aorkey)+'. Error: '+str(e))
                             continue
+                    else:
+                        log_queue.put(str(datetime.datetime.now())+': did not run sl_io_correct for AORKEY='+\
+                                      str(aorkey)+'. Number of BCDs=1.')
 
                     try:
                         # Saving additional information
@@ -220,7 +227,7 @@ def run_cubes_in_progid(progid):
                         cube.make_dark_mask(simlaver=simlaver)
                         cube.save_moment_zero_map(simlaver=simlaver)
                         cube.save_spectrum()
-                        if chnlnum == 0: 
+                        if do_io_correct: 
                             cube.save_spectrum(specfile=prod_aorpath+savename.replace('_cube.fits', '_spec-iocorr.tbl'), 
                                                cubefile=prod_aorpath+savename.replace('.fits', '-iocorr.fits'))
                             
@@ -241,7 +248,7 @@ def run_cubes_in_progid(progid):
                         cube.save_spectrum(specfile=qa_savename_template+'_brightspec.tbl', \
                                            mask=brightmask)
                         
-                        if chnlnum == 0:
+                        if do_io_correct:
                             cube.save_spectrum(cubefile=cube.savename.replace('_cube.fits', '_cube-iocorr.fits'), \
                                                specfile=qa_savename_template+'_darkspec-iocorr.tbl', \
                                                mask=darkmask)

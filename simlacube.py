@@ -57,8 +57,7 @@ class SimlaCube:
         self.ISM_12 = np.unique(q['ISM_12'].to_numpy())[0]
         self.ref_coords = (np.nanmean(q['RA_FOV'].to_numpy()), np.nanmean(q['DEC_FOV'].to_numpy()))
 
-        # target_multi only
-        self.multi_key = 'N/A'
+        self.multi_key = 0
 
         self.header0 = fits.getheader(self.bcd_file_names[0])
 
@@ -72,14 +71,14 @@ class SimlaCube:
             spatial_overlap = 1-(self.header0['SIZEPAR']/length)
             spectral_overlap = 1-(self.header0['SIZEPER']/width)
             
-            if spatial_overlap < 0: self.SAMPSPAT = 'SPARSE'
-            elif 0 <= spatial_overlap <= threshold: self.SAMPSPAT = 'MARGINAL'
-            elif threshold < spatial_overlap: self.SAMPSPAT = 'ROBUST'
+            if spatial_overlap < 0 or self.header0['STEPSPAR'] == 1: self.SAMPSPAT = 'SPARSE'
+            elif 0 <= spatial_overlap < threshold: self.SAMPSPAT = 'MARGINAL'
+            elif threshold <= spatial_overlap: self.SAMPSPAT = 'ROBUST'
             
             if spectral_overlap < 0: self.SAMPSPEC = 'SPARSE'
-            elif 0 <= spectral_overlap <= threshold: self.SAMPSPEC = 'MARGINAL'
-            elif threshold < spectral_overlap: self.SAMPSPEC = 'ROBUST'
-            if self.header0['STEPSPER'] == 1: sself.SAMPSPEC= 'SLIT'
+            elif 0 <= spectral_overlap < threshold: self.SAMPSPEC = 'MARGINAL'
+            elif threshold <= spectral_overlap: self.SAMPSPEC = 'ROBUST'
+            if self.header0['STEPSPER'] == 1: self.SAMPSPEC = 'SLIT'
 
         except:
             self.SAMPSPAT = 'N/A'
@@ -207,10 +206,10 @@ class SimlaCube:
                     final_mask.extend(trunc_remote_mask)
                     this_shard_depth += len(trunc_remote_mask)
 
-                # Record the rank
-                if this_shard_depth == self.min_shard_depth: rank_string += '2'
-                elif 0 < this_shard_depth < self.min_shard_depth: rank_string += '3'
-                elif this_shard_depth == 0: rank_string += '4'
+                    # Record the rank
+                    if this_shard_depth == self.min_shard_depth: rank_string += '2'
+                    elif 0 < this_shard_depth < self.min_shard_depth: rank_string += '3'
+                    elif this_shard_depth == 0: rank_string += '4'
 
         # Final selection for shards we are going to use
         final_mask = np.asarray(final_mask)
@@ -364,7 +363,7 @@ class SimlaCube:
             self.bg_n_sameaor = int(np.sum(np.where(aorkeys==self.AORKEY, 1, 0)))
             self.bg_n_otheraor = int(np.sum(np.where(aorkeys!=self.AORKEY, 1, 0)))
             self.bg_mean_judge_agreement = np.nanmean(judge1s/judge2s)
-            self.mean_background_rank = round(np.mean([int(i) for i in self.background_rank]), 2)
+            self.mean_background_rank = round(np.mean([int(i) for i in self.background_rank]), 3)
 
         else:
 
@@ -479,8 +478,8 @@ class SimlaCube:
             'TMULTNUM', 'IOCORR', 'PTYPE',
         ]
         values = [
-            simlaver, self.SAMPSPAT, self.SAMPSPEC, \
-            len(self.dceids), round(self.MJD_mean, 5), self.ZODI_12, self.ISM_12, self.mean_background_rank, \
+            simlaver, self.SAMPSPEC, self.SAMPSPAT, \
+            len(self.bcd_file_names), round(self.MJD_mean, 5), self.ZODI_12, self.ISM_12, self.mean_background_rank, \
             self.bg_mean_deltazodi, self.bg_mean_deltatime, self.bg_n_sameaor, \
             self.bg_n_otheraor, self.multi_key, False, 'CUBE',
         ]
@@ -497,7 +496,7 @@ class SimlaCube:
             '[days] mean delta time across used BG obs',
             'Number of BG shards from the cube AOR',
             'Number of BG shards NOT from the cube AOR',
-            'Cube number if TargetMulti/TargetFixedCluster',
+            'Cube number in AOR (0 if single target)',
             'True if this is IO signal-corrected (SL only)',
             'SIMLA product type',
         ]
@@ -629,8 +628,8 @@ class SimlaCube:
             'SAMPSPEC': self.SAMPSPEC,
             'BG_DZODI': self.bg_mean_deltazodi,
             'BG_DTIME': self.bg_mean_deltatime,
-            'BG_RANK': str(self.background_rank),
-            'BG_SHARD_RANKS': self.mean_background_rank,
+            'BG_RANK': self.mean_background_rank,
+            'BG_SHARD_RANKS': str(self.background_rank),
             'BG_IN': self.bg_n_sameaor,
             'BG_OUT': self.bg_n_otheraor,
         }]).to_csv(statfile_name, index=False)
@@ -789,13 +788,14 @@ class SimlaCube:
         cubeheader = loadcube[0].header
         overlap_header.insert(26, ('SIMLAVER', simlaver, 'SIMLA pipeline version'))
         overlap_header.insert(27, ('AORKEY', int(cubeheader['AORKEY']), 'IRS area obeservation request key'))
-        overlap_header.insert(28, ('CHNLNUM', cubeheader['CHNLNUM'], 'IRS channel: 0=SL, 1=SH, 2=LL, 3=LH'))
-        overlap_header.insert(29, ('APERNAME', cubeheader['APERNAME'], 'IRS module and order'))
-        overlap_header.insert(30, ('PROGID', cubeheader['PROGID'], 'IRS Program ID'))
-        overlap_header.insert(31, ('OBJECT', cubeheader['OBJECT'], 'Target Name'))
-        overlap_header.insert(32, ('RAMPTIME', cubeheader['RAMPTIME'], '[sec] Ramp (total DCE) integration time'))
-        overlap_header.insert(33, ('MEAN_MJD', cubeheader['MEAN_MJD'], '[days] Mean Mod. Julian Date across AOR'))
-        overlap_header.insert(34, ('PTYPE', 'DARKMASK', 'SIMLA product type'))
+        overlap_header.insert(28, ('TMULTNUM', int(cubeheader['TMULTNUM']), 'Cube number in AOR (0 if single target)'))
+        overlap_header.insert(29, ('CHNLNUM', cubeheader['CHNLNUM'], 'IRS channel: 0=SL, 1=SH, 2=LL, 3=LH'))
+        overlap_header.insert(30, ('APERNAME', cubeheader['APERNAME'], 'IRS module and order'))
+        overlap_header.insert(31, ('PROGID', cubeheader['PROGID'], 'IRS Program ID'))
+        overlap_header.insert(32, ('OBJECT', cubeheader['OBJECT'], 'Target Name'))
+        overlap_header.insert(33, ('RAMPTIME', cubeheader['RAMPTIME'], '[sec] Ramp (total DCE) integration time'))
+        overlap_header.insert(34, ('MEAN_MJD', cubeheader['MEAN_MJD'], '[days] Mean Mod. Julian Date across AOR'))
+        overlap_header.insert(35, ('PTYPE', 'DARKMASK', 'SIMLA product type'))
         
         overlap_hdu = fits.PrimaryHDU(data=main_overlap_map, header=overlap_header)
         overlap_hdu.writeto(savefile, overwrite=True)
@@ -837,13 +837,14 @@ class SimlaCube:
         mom0_header.insert(26, ('SIMLAVER', simlaver, 'SIMLA pipeline version'))
         mom0_header.insert(27, ('BUNIT', 'MJy/sr', 'Units of surface brightness data'))
         mom0_header.insert(28, ('AORKEY', int(cubeheader['AORKEY']), 'IRS area obeservation request key'))
-        mom0_header.insert(29, ('CHNLNUM', cubeheader['CHNLNUM'], 'IRS channel: 0=SL, 1=SH, 2=LL, 3=LH'))
-        mom0_header.insert(30, ('APERNAME', cubeheader['APERNAME'], 'IRS module and order'))
-        mom0_header.insert(31, ('PROGID', cubeheader['PROGID'], 'IRS Program ID'))
-        mom0_header.insert(32, ('OBJECT', cubeheader['OBJECT'], 'Target Name'))
-        mom0_header.insert(33, ('RAMPTIME', cubeheader['RAMPTIME'], '[sec] Ramp (total DCE) integration time'))
-        mom0_header.insert(34, ('MEAN_MJD', cubeheader['MEAN_MJD'], '[days] Mean Mod. Julian Date across AOR'))
-        mom0_header.insert(35, ('PTYPE', 'MOMENT0', 'SIMLA product type'))
+        mom0_header.insert(29, ('TMULTNUM', int(cubeheader['TMULTNUM']), 'Cube number in AOR (0 if single target)'))
+        mom0_header.insert(30, ('CHNLNUM', cubeheader['CHNLNUM'], 'IRS channel: 0=SL, 1=SH, 2=LL, 3=LH'))
+        mom0_header.insert(31, ('APERNAME', cubeheader['APERNAME'], 'IRS module and order'))
+        mom0_header.insert(32, ('PROGID', cubeheader['PROGID'], 'IRS Program ID'))
+        mom0_header.insert(33, ('OBJECT', cubeheader['OBJECT'], 'Target Name'))
+        mom0_header.insert(34, ('RAMPTIME', cubeheader['RAMPTIME'], '[sec] Ramp (total DCE) integration time'))
+        mom0_header.insert(35, ('MEAN_MJD', cubeheader['MEAN_MJD'], '[days] Mean Mod. Julian Date across AOR'))
+        mom0_header.insert(36, ('PTYPE', 'MOMENT0', 'SIMLA product type'))
         
         mom0_hdu = fits.PrimaryHDU(data=mom0_data, header=mom0_header)
         mom0_hdu.writeto(mapfile, overwrite=True)
@@ -883,6 +884,8 @@ class SimlaCube:
         mask = np.where(mask==0, np.nan, mask)
 
         maskcube = np.asarray([mask for i in range(len(cubedata))])
+        maskcube = np.where(cubedata!=cubedata, np.nan, maskcube)
+        
         spectrum = np.nansum(cubedata*maskcube, axis=(1,2))/np.nansum(maskcube, axis=(1,2))
         unc_spectrum = np.sqrt(np.nansum((unc_cube*maskcube)**2, axis=(1,2)))/np.nansum(maskcube, axis=(1,2))
 
